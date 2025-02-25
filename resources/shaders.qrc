@@ -1,0 +1,17 @@
+<RCC>
+    <qresource prefix="/shaders">
+        <file>../shaders/01_textured_rect/vertex.glsl</file>
+        <file>../shaders/01_textured_rect/fragment.glsl</file>
+        <file>../shaders/02_textured_unit/vertex.glsl</file>
+        <file>../shaders/02_textured_unit/fragment.glsl</file>
+        <file>../shaders/03_matrix/vertex.glsl</file>
+        <file>../shaders/03_matrix/fragment.glsl</file>
+        <file>../shaders/04_coordinate/vertex.glsl</file>
+        <file>../shaders/04_coordinate/fragment.glsl</file>
+        <file>../shaders/06_prps/vertex.glsl</file>
+        <file>../shaders/06_prps/fragment.glsl</file>
+        <file>../shaders/06_prps/geometry.glsl</file>
+        <file>../shaders/06_prps/text_vertex.glsl</file>
+        <file>../shaders/06_prps/text_fragment.glsl</file>
+    </qresource>
+</RCC>
