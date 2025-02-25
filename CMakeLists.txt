@@ -8,8 +8,8 @@ project(ProGraphics
 )
 
 # 设置CMake选项
-option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
 
 # 设置CMake变量
 set(CMAKE_CXX_STANDARD 20)
@@ -39,15 +39,16 @@ file(GLOB_RECURSE PROGRAPHICS_HEADERS
 )
 
 # 创建库目标
-if(BUILD_SHARED_LIBS)
+if (BUILD_SHARED_LIBS)
     add_library(ProGraphics SHARED ${PROGRAPHICS_SOURCES} ${PROGRAPHICS_HEADERS})
     target_compile_definitions(ProGraphics
             PRIVATE PROGRAPHICS_EXPORTS
             PUBLIC PROGRAPHICS_SHARED
+            PUBLIC QT_SHARED
     )
-else()
+else ()
     add_library(ProGraphics STATIC ${PROGRAPHICS_SOURCES} ${PROGRAPHICS_HEADERS})
-endif()
+endif ()
 
 set_target_properties(ProGraphics PROPERTIES
         AUTOMOC ON
@@ -78,7 +79,7 @@ target_include_directories(ProGraphics
 target_compile_features(ProGraphics PUBLIC cxx_std_20)
 
 # 编译器特定配置
-if(MSVC)
+if (MSVC)
     target_compile_options(ProGraphics
             PRIVATE
             /W4             # 警告级别
@@ -86,7 +87,7 @@ if(MSVC)
             /Zc:__cplusplus # 启用正确的 __cplusplus 宏
             /utf-8          # 使用 UTF-8 编码
     )
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ProGraphics
             PRIVATE
             -Wall
@@ -94,7 +95,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             -Wpedantic
             -fPIC
     )
-endif()
+endif ()
 
 # 设置调试信息
 target_compile_options(ProGraphics PRIVATE
@@ -113,11 +114,11 @@ target_link_libraries(ProGraphics
 )
 
 # 平台特定链接
-if(MSVC)
+if (MSVC)
     target_link_libraries(ProGraphics PUBLIC opengl32)
-elseif(UNIX AND NOT APPLE)
+elseif (UNIX AND NOT APPLE)
     target_link_libraries(ProGraphics PUBLIC GL)
-endif()
+endif ()
 
 # 安装配置
 include(GNUInstallDirs)
@@ -170,6 +171,6 @@ install(
 )
 
 # 构建示例
-if(PROGRAPHICS_BUILD_EXAMPLES)
+if (PROGRAPHICS_BUILD_EXAMPLES)
     add_subdirectory(examples)
-endif()
+endif ()

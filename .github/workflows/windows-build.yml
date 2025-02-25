@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: '3.9'
 
+
+      - name: Install build tools
+        run: |
+          choco install ninja cmake
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
@@ -34,12 +39,7 @@ jobs:
         with:
           arch: x64
 
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: 'f5ec6f30ff70f04f841436a0f36600bdbabfcfbf'
-          vcpkgJsonGlob: 'vcpkg.json'
-          runVcpkgInstall: true
+
 
       - name: Configure
         env:

@@ -29,7 +29,6 @@ jobs:
         with:
           version: '6.8.*'
           arch: clang_64
-          tools: 'tools_ninja'
           cache: true
 
 
