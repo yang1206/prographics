@@ -2,6 +2,9 @@
 
 ProGraphics 是一个基于 Qt 和 OpenGL 的图形库，提供了简单易用的 3D 图形渲染功能。
 
+[![Windows Build](https://github.com/yang1206/qt-template/actions/workflows/windows-build.yml/badge.svg)](https://github.com/yang1206/prographics/actions/workflows/windows-build.yml)
+[![macOS Build](https://github.com/yang1206/qt-template/actions/workflows/macos-build.yml/badge.svg)](https://github.com/yang1206/prographics/actions/workflows/macos-build.yml)
+
 ## 特性
 
 - 基于 Qt6 和 OpenGL
@@ -27,9 +30,9 @@ ProGraphics 是一个基于 Qt 和 OpenGL 的图形库，提供了简单易用�
 ```cmake
 include(FetchContent)
 FetchContent_Declare(
-    ProGraphics
-    GIT_REPOSITORY https://github.com/yang1206/prographics.git
-    GIT_TAG main
+        ProGraphics
+        GIT_REPOSITORY https://github.com/yang1206/prographics.git
+        GIT_TAG main
 )
 FetchContent_MakeAvailable(ProGraphics)
 ```
@@ -41,12 +44,15 @@ target_link_libraries(YourTarget PRIVATE ProGraphics::ProGraphics)
 ```
 
 ### 方法 2：手动安装
+
 1. 克隆仓库：
 
 ```bash
 git clone https://github.com/yang1206/prographics.git
 ```
+
 2. 构建和安装：
+
 ```bash
 cd prographics
 cmake -B build -DCMAKE_BUILD_TYPE=Release
