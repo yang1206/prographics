@@ -241,6 +241,7 @@ namespace ProGraphics {
      * @param indices 用于存储生成的索引数据的向量
      */
     virtual void generateIndices(std::vector<GLuint> &indices) {
+        (void)indices;
     }
 
     /**
@@ -377,7 +378,7 @@ namespace ProGraphics {
     // 实现基类虚函数
     void generateVertices(std::vector<float> &vertices) override;
 
-    void generateIndices(std::vector<GLuint> &indices);
+    void generateIndices(std::vector<GLuint> &indices) override;
 
     GLenum getPrimitiveType() const override { return GL_LINES; }
 

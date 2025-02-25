@@ -3,7 +3,7 @@
 #include "prographics/charts/coordinate/coordinate3d.h"
 #include <QTimer>
 
-#include "prographics/core/graphics/primitive2D.h"
+#include "prographics/core/graphics/primitive2d.h"
 
 namespace ProGraphics {
     // PRPS数据相关的常量

@@ -17,14 +17,25 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGLWidgets Ope
 file(GLOB_RECURSE EXAMPLE_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+        mainwindow.h
+        mainwindow.cpp
+        main.cpp
 )
 
 # 创建可执行文件
 qt_add_executable(ProGraphicsExamples
         ${EXAMPLE_SOURCES}
-#        resources/shaders.qrc
-#        resources/textures.qrc
+        resources/shaders.qrc
+        resources/textures.qrc
+        MANUAL_FINALIZATION
 )
+
+set_target_properties(ProGraphicsExamples PROPERTIES
+        AUTOMOC ON
+        AUTORCC ON
+        AUTOUIC ON
+)
+
 
 # 链接ProGraphics库
 target_link_libraries(ProGraphicsExamples

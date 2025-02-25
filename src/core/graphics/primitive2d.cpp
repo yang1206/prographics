@@ -1,4 +1,5 @@
-﻿#include "prographics/core/graphics/primitive2d.h"
+﻿#define GL_SILENCE_DEPRECATION
+#include "prographics/core/graphics/primitive2d.h"
 
 namespace ProGraphics {
   QOpenGLBuffer *VertexBufferPool::acquire() {
@@ -476,6 +477,8 @@ namespace ProGraphics {
   }
 
   void Line2D::draw(const QMatrix4x4 &projection, const QMatrix4x4 &view) {
+      (void)projection; // 显式标记参数未使用
+      (void)view;      // 显式标记参数未使用
     if (!m_visible)
       return;
     if (m_isDirty) {

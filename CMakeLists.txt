@@ -49,6 +49,12 @@ else()
     add_library(ProGraphics STATIC ${PROGRAPHICS_SOURCES} ${PROGRAPHICS_HEADERS})
 endif()
 
+set_target_properties(ProGraphics PROPERTIES
+        AUTOMOC ON
+        AUTORCC ON
+        AUTOUIC ON
+)
+
 
 add_library(ProGraphics::ProGraphics ALIAS ProGraphics)
 
