@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include "prographics/prographics_export.h"
 #include "camera.h"
 #include <QTimer>
 
@@ -14,7 +15,7 @@ namespace ProGraphics {
  * - 带惯性的平滑运动
  * - 可配置的视角限制
  */
-class OrbitControls : public QObject {
+class PROGRAPHICS_EXPORT OrbitControls : public QObject {
   Q_OBJECT
 
 public:

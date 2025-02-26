@@ -13,13 +13,17 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 
-# 收集所有源文件
+# 收集所有源文件 - 更精确地收集文件
 file(GLOB_RECURSE EXAMPLE_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-        mainwindow.h
-        mainwindow.cpp
-        main.cpp
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+)
+
+# 单独添加主要文件
+list(APPEND EXAMPLE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
 )
 
 # 创建可执行文件
@@ -30,12 +34,25 @@ qt_add_executable(ProGraphicsExamples
         MANUAL_FINALIZATION
 )
 
+# 简化MOC设置，避免复杂选项
 set_target_properties(ProGraphicsExamples PROPERTIES
         AUTOMOC ON
         AUTORCC ON
         AUTOUIC ON
 )
+target_compile_definitions(ProGraphicsExamples
+        PRIVATE
+        PROGRAPHICS_IMPORTS
+        QT_SHARED
+)
 
+# 包含二进制目录以找到生成的导出头文件
+target_include_directories(ProGraphicsExamples
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}/include
+)
 
 # 链接ProGraphics库
 target_link_libraries(ProGraphicsExamples
@@ -44,12 +61,6 @@ target_link_libraries(ProGraphicsExamples
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::OpenGL
         Qt${QT_VERSION_MAJOR}::OpenGLWidgets
-)
-
-# 设置包含目录
-target_include_directories(ProGraphicsExamples
-        PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # 设置编译选项

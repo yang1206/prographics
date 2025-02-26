@@ -87,8 +87,12 @@ int main(int argc, char *argv[]) {
 
 ## 许可证
 
-本项目基于 MIT 许可证。详情请参阅 [LICENSE](./LICENSE) 文件。
+本项目基于 LGPL-3.0 许可证。详情请参阅 [LICENSE](./LICENSE) 文件。
 
+注意：
+- 如果以动态链接方式使用本库，你的应用程序可以使用任何许可证
+- 如果以静态链接方式使用本库，你的应用程序必须遵循 LGPL 许可证
+- 对本库的任何修改都需要以相同的许可证开源
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！

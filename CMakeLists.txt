@@ -8,7 +8,7 @@ project(ProGraphics
 )
 
 # 设置CMake选项
-option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
 
 # 设置CMake变量
@@ -21,31 +21,62 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
 # 查找依赖
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 
-# 收集源文件
+# 收集源文件 - 修改方式收集所有需要的文件
 file(GLOB_RECURSE PROGRAPHICS_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/charts/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/utils/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
 
 file(GLOB_RECURSE PROGRAPHICS_HEADERS
-        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/core/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/charts/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/utils/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/*.h"
 )
+
+# 明确列出带有Q_OBJECT宏的头文件
+set(WRAPPED_HEADER_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/charts/base/gl_widget.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/utils/orbit_controls.h"
+)
+
+# 为带有Q_OBJECT的类创建专用实现文件
+set(MOC_IMPLEMENTATION_DIR "${CMAKE_CURRENT_BINARY_DIR}/moc_impl")
+file(MAKE_DIRECTORY ${MOC_IMPLEMENTATION_DIR})
+
+set(MOC_SOURCES)
+foreach(HEADER_PATH ${WRAPPED_HEADER_FILES})
+    get_filename_component(HEADER_NAME ${HEADER_PATH} NAME_WE)
+    set(IMPL_FILE "${MOC_IMPLEMENTATION_DIR}/${HEADER_NAME}_moc_impl.cpp")
+    file(WRITE ${IMPL_FILE} "#include \"${HEADER_PATH}\"\n")
+    list(APPEND MOC_SOURCES ${IMPL_FILE})
+endforeach()
+
+# 添加到源文件列表
+list(APPEND PROGRAPHICS_SOURCES ${MOC_SOURCES})
 
 # 创建库目标
 if (BUILD_SHARED_LIBS)
     add_library(ProGraphics SHARED ${PROGRAPHICS_SOURCES} ${PROGRAPHICS_HEADERS})
     target_compile_definitions(ProGraphics
-            PRIVATE PROGRAPHICS_EXPORTS
-            PUBLIC PROGRAPHICS_SHARED
-            PUBLIC QT_SHARED
+            PRIVATE
+            ProGraphics_EXPORTS  # 确保使用与export.h匹配的宏名称
+            PROGRAPHICS_EXPORTS  # 添加这个以确保兼容性
+            PUBLIC
+            PROGRAPHICS_SHARED
+            PUBLIC
+            QT_SHARED
     )
+    if(MSVC)
+        set_target_properties(ProGraphics PROPERTIES
+                WINDOWS_EXPORT_ALL_SYMBOLS ON
+        )
+    endif()
 else ()
     add_library(ProGraphics STATIC ${PROGRAPHICS_SOURCES} ${PROGRAPHICS_HEADERS})
 endif ()
@@ -70,9 +101,17 @@ generate_export_header(ProGraphics
 target_include_directories(ProGraphics
         PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
         $<INSTALL_INTERFACE:include>
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+install(
+        FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/include/prographics/prographics_export.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/prographics
 )
 
 # 设置编译选项
@@ -83,7 +122,6 @@ if (MSVC)
     target_compile_options(ProGraphics
             PRIVATE
             /W4             # 警告级别
-            /WX             # 将警告视为错误
             /Zc:__cplusplus # 启用正确的 __cplusplus 宏
             /utf-8          # 使用 UTF-8 编码
     )

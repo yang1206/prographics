@@ -1,5 +1,5 @@
 ﻿#pragma once
-
+#include "prographics/prographics_export.h"
 #include <QOpenGLBuffer>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
@@ -9,7 +9,7 @@
 #include <qelapsedtimer.h>
 
 namespace ProGraphics {
-  class BaseGLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
+  class PROGRAPHICS_EXPORT BaseGLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
 
   public:
