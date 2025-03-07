@@ -8,8 +8,8 @@ namespace ProGraphics {
     setAxisName('y', "幅值", "dBmV");
 
     // 设置坐标轴范围和刻度
-    setTicksRange('x', PRPDConstants::PHASE_MIN, PRPDConstants::PHASE_MAX, 45);
-    setTicksRange('y', m_amplitudeMin, m_amplitudeMax, 5);
+    setTicksRange('x', PRPDConstants::PHASE_MIN, PRPDConstants::PHASE_MAX, 85);
+    setTicksRange('y', m_amplitudeMin, m_amplitudeMax, 8);
 
 
     // 设置网格
@@ -205,14 +205,14 @@ namespace ProGraphics {
   void PRPDChart::setAmplitudeRange(float min, float max) {
     m_amplitudeMin = min;
     m_amplitudeMax = max;
-    setTicksRange('y', min, max, calculateTickStep(max - min));
+    setTicksRange('y', min, max, calculateTickStep(max - min) * 2);
     update();
   }
 
   void PRPDChart::setPhaseRange(float min, float max) {
     m_phaseMin = min;
     m_phaseMax = max;
-    setTicksRange('x', min, max, 45); // 相位通常以45度为刻度
+    setTicksRange('x', min, max, 85); // 相位通常以45度为刻度
     update();
   }
 
@@ -337,7 +337,7 @@ namespace ProGraphics {
     if (rangeChanged) {
       // 计算合适的刻度间隔
       float range = m_displayMax - m_displayMin;
-      float step = calculateTickStep(range);
+      float step = calculateTickStep(range) * 2;
 
       // 更新坐标轴刻度
       setTicksRange('y', m_displayMin, m_displayMax, step);

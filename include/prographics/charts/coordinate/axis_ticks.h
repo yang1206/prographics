@@ -44,7 +44,7 @@ namespace ProGraphics {
       struct Range {
         float min = 0.0f; ///< 最小刻度值
         float max = 5.0f; ///< 最大刻度值
-        float step = 1.0f; ///< 主刻度间隔
+        float step = 2.0f; ///< 主刻度间隔
       } range;
     };
 

@@ -2,8 +2,8 @@
 
 ProGraphics 是一个基于 Qt 和 OpenGL 的现代化数据可视化图表库，提供了简单的 3D 图表渲染功能。
 
-[![Windows Build](https://github.com/yang1206/qt-template/actions/workflows/windows-build.yml/badge.svg)](https://github.com/yang1206/prographics/actions/workflows/windows-build.yml)
-[![macOS Build](https://github.com/yang1206/qt-template/actions/workflows/macos-build.yml/badge.svg)](https://github.com/yang1206/prographics/actions/workflows/macos-build.yml)
+[![Windows Build](https://github.com/yang1206/prographics/actions/workflows/windows-build.yml/badge.svg)](https://github.com/yang1206/prographics/actions/workflows/windows-build.yml)
+[![macOS Build](https://github.com/yang1206/prographics/actions/workflows/macos-build.yml/badge.svg)](https://github.com/yang1206/prographics/actions/workflows/macos-build.yml)
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL%20v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 
 

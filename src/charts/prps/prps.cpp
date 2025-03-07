@@ -17,8 +17,8 @@ namespace ProGraphics {
     setAxisEnabled(false);
 
     // 设置各轴的刻度范围
-    setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 45);
-    setTicksRange('y', m_amplitudeMin, m_amplitudeMax, 5);
+    setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 85);
+    setTicksRange('y', m_amplitudeMin, m_amplitudeMax, 8);
     setAxisVisible('z', false);
   }
 
@@ -253,7 +253,7 @@ namespace ProGraphics {
     if (rangeChanged) {
       // 计算合适的刻度间隔
       float range = m_displayMax - m_displayMin;
-      float step = calculateTickStep(range);
+      float step = calculateTickStep(range) * 2;
 
       // 更新坐标轴刻度
       setTicksRange('y', m_displayMin, m_displayMax, step);
