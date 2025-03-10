@@ -346,6 +346,15 @@ namespace ProGraphics {
      */
     void setMargin(float left, float right, float top, float bottom);
 
+    /**
+     * @brief 设置背景颜色
+     * @param color
+     */
+    void setBackgroundColor(QColor color) {
+      m_backgroundcolor = color;
+      update();
+    }
+
     Camera camera() {
       return m_camera;
     }
@@ -411,5 +420,7 @@ namespace ProGraphics {
 
     static const char *vertexShaderSource; ///< 顶点着色器源码
     static const char *fragmentShaderSource; ///< 片段着色器源码
+
+    QColor m_backgroundcolor{46, 59, 84};; ///< 背景颜色
   };
 } // namespace ProGraphics

@@ -214,6 +214,16 @@ namespace ProGraphics {
                              const QVector4D &gridMajorColor,
                              const QVector4D &gridMinorColor);
 
+
+    /**
+     * @brief 设置背景颜色
+     * @param color
+     */
+    void setBackgroundColor(QColor color) {
+      m_backgroundcolor = color;
+      update();
+    }
+
     Camera camera() {
       return m_camera;
     }
@@ -296,6 +306,8 @@ namespace ProGraphics {
     std::unique_ptr<Grid> m_gridSystem; ///< 网格系统
     std::unique_ptr<AxisName> m_nameSystem; ///< 名称系统
     std::unique_ptr<AxisTicks> m_tickSystem; ///< 刻度系统
+
+    QColor m_backgroundcolor{46, 59, 84}; ///< 背景颜色
 
     static const char *vertexShaderSource; ///< 顶点着色器源码
     static const char *fragmentShaderSource; ///< 片段着色器源码
