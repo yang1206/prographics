@@ -1,27 +1,29 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include "prographics/charts/prpd/prpd.h"
-#include "prographics/charts/prps/prps.h"
 #include <QMainWindow>
 #include <QTimer>
+#include "prographics/charts/prpd/prpd.h"
+#include "prographics/charts/prps/prps.h"
 
 class MainWindow : public QMainWindow {
-  Q_OBJECT
+    Q_OBJECT
 
-public:
-  explicit MainWindow(QWidget *parent = nullptr);
+  public:
+    explicit MainWindow(QWidget* parent = nullptr);
 
-private slots:
-  void generateTestData();
+  private slots:
+    void generateTestData();
 
-private:
-  QTabWidget *m_tabWidget;
-  ProGraphics::PRPSChart *m_prpsChart;
-  ProGraphics::PRPDChart *m_prpdChart;
-  QTimer m_dataTimer;
+  private:
+    QTabWidget*             m_tabWidget;
+    ProGraphics::PRPSChart* m_prpsChart;
+    ProGraphics::PRPDChart* m_prpdChart;
+    QTimer                  m_dataTimer;
 
-  std::vector<float> generateStandardPDPattern() const;
+    std::vector<float> generateStandardPDPattern() const;
+
+    std::vector<float> generateRandomAmplitudePattern() const;
 };
 
 #endif // MAINWINDOW_H

@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #include "prographics/core/graphics/primitive2d.h"
+#include "prographics/utils/utils.h"
 
 namespace ProGraphics {
     // PRPS数据相关的常量
@@ -40,8 +41,9 @@ namespace ProGraphics {
         void setThreshold(float threshold) { m_threshold = threshold; }
 
         void setAmplitudeRange(float min, float max);
-
         void setPhaseRange(float min, float max);
+        void setDynamicRangeEnabled(bool enabled);
+        bool isDynamicRangeEnabled() const;
 
     protected:
         void initializeGLObjects() override;
@@ -61,24 +63,14 @@ namespace ProGraphics {
         std::vector<std::vector<float> > m_currentCycles;
         float m_threshold = 0.1f;
 
-
         // 线组管理
         std::vector<std::unique_ptr<LineGroup> > m_lineGroups;
         QTimer m_prpsAnimationTimer;
         float m_prpsAnimationSpeed = 0.1f;
 
-        // 实际数据范围（用于渲染）
-        float m_amplitudeMin = -75.0f;
-        float m_amplitudeMax = -30.0f;
-
-        // 显示范围（用于坐标轴）
-        float m_displayMin = -75.0f;
-        float m_displayMax = -30.0f;
-
-        // 平滑过渡参数
-        float m_rangeTransitionSpeed = 0.1f; // 范围过渡速度
-        float m_rangeUpdateThreshold = 10.0f; // 更新阈值（dBm）
-
+        // 动态量程管理
+        DynamicRange m_dynamicRange;
+        bool m_dynamicRangeEnabled = true;
 
         // 坐标范围
         float m_phaseMin = PRPSConstants::PHASE_MIN;
@@ -86,24 +78,16 @@ namespace ProGraphics {
 
         // 处理方法
         void processCurrentCycles();
-
         void updatePRPSAnimation();
-
         void cleanupInactiveGroups();
 
         // 坐标映射方法
         float mapPhaseToGL(float phase) const;
-
         float mapAmplitudeToGL(float amplitude) const;
-
         float mapGLToPhase(float glX) const;
-
         float mapGLToAmplitude(float glY) const;
 
-        // 添加自适应范围的方法
-        void updateAmplitudeRange(const std::vector<float> &newData);
-
-        // 添加重新计算所有线组的方法
+        // 重新计算所有线组的方法
         void recalculateLineGroups();
     };
 }
