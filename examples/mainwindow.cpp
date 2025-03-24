@@ -17,7 +17,7 @@
 #include <cmath>
 #include <random>
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabWidget = new QTabWidget(this);
     setCentralWidget(m_tabWidget);
     // 添加第一个示例
@@ -46,7 +46,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 void MainWindow::generateTestData() {
     // 生成标准的局部放电数据
-    auto cycleData = generateStandardPDPattern();
+    auto cycleData = generateRandomAmplitudePattern();
 
     // 添加到图表
     m_prpsChart->addCycleData(cycleData);
@@ -58,7 +58,7 @@ std::vector<float> MainWindow::generateStandardPDPattern() const {
 
     // 创建随机数生成器
     static std::random_device rd;
-    static std::mt19937       gen(rd());
+    static std::mt19937 gen(rd());
 
     // 背景噪声（较低水平）
     static std::normal_distribution<float> backgroundNoise(0.0f, 0.5f);
@@ -80,29 +80,29 @@ std::vector<float> MainWindow::generateStandardPDPattern() const {
 
     // 添加内部放电 - 正半周期（集中在50°-130°）
     static std::normal_distribution<float> posPhaseDistribution(90.0f, 15.0f);
-    int                                    posDischargeCount = 20 + gen() % 10; // 20-30个放电点
+    int posDischargeCount = 20 + gen() % 10; // 20-30个放电点
 
     for (int i = 0; i < posDischargeCount; ++i) {
         float phase = posPhaseDistribution(gen);
         if (phase >= 0 && phase <= 180) {
-            int   idx       = phaseToIndex(phase);
+            int idx = phaseToIndex(phase);
             float amplitude = -75.0f + dischargeAmplitudePos(gen);
-            amplitude       = std::min(amplitude, -40.0f);         // 限制最大值
-            cycleData[idx]  = std::max(cycleData[idx], amplitude); // 取较大值
+            amplitude = std::min(amplitude, -40.0f); // 限制最大值
+            cycleData[idx] = std::max(cycleData[idx], amplitude); // 取较大值
         }
     }
 
     // 添加内部放电 - 负半周期（集中在230°-310°）
     static std::normal_distribution<float> negPhaseDistribution(270.0f, 15.0f);
-    int                                    negDischargeCount = 15 + gen() % 10; // 15-25个放电点
+    int negDischargeCount = 15 + gen() % 10; // 15-25个放电点
 
     for (int i = 0; i < negDischargeCount; ++i) {
         float phase = negPhaseDistribution(gen);
         if (phase >= 180 && phase <= 360) {
-            int   idx       = phaseToIndex(phase);
+            int idx = phaseToIndex(phase);
             float amplitude = -75.0f + dischargeAmplitudeNeg(gen);
-            amplitude       = std::min(amplitude, -35.0f);         // 负半周放电略强
-            cycleData[idx]  = std::max(cycleData[idx], amplitude); // 取较大值
+            amplitude = std::min(amplitude, -35.0f); // 负半周放电略强
+            cycleData[idx] = std::max(cycleData[idx], amplitude); // 取较大值
         }
     }
 
@@ -114,22 +114,22 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
 
     // 创建随机数生成器
     static std::random_device rd;
-    static std::mt19937       gen(rd());
+    static std::mt19937 gen(rd());
 
     // 定义几种不同的数据范围
     static const struct Range {
         float min;
         float max;
     } ranges[] = {
-        // {-2000.0f, 1000.0f}, // 范围1: 负值到正值
-        {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
-        {2000.0f, 3000.0f}   // 范围3: 全正值较小范围
-    };
+                // {-2000.0f, 1000.0f}, // 范围1: 负值到正值
+                {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
+                {2000.0f, 3000.0f} // 范围3: 全正值较小范围
+            };
 
     // 跟踪时间和当前范围
     static QElapsedTimer rangeTimer;
-    static int           currentRangeIndex = 0;
-    static bool          initialized       = false;
+    static int currentRangeIndex = 0;
+    static bool initialized = false;
 
     if (!initialized) {
         rangeTimer.start();
@@ -138,14 +138,14 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
 
     // 每20秒切换一次范围
     const int rangeDurationMs = 10000; // 20秒
-    int       elapsedSecs     = rangeTimer.elapsed() / rangeDurationMs;
-    int       newRangeIndex   = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
+    int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
+    int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 
     // 如果范围改变，输出日志
     if (newRangeIndex != currentRangeIndex) {
         currentRangeIndex = newRangeIndex;
         qDebug() << "切换数据范围: " << ranges[currentRangeIndex].min << " 到 " << ranges[currentRangeIndex].max
-                 << QTime::currentTime().toString();
+                << QTime::currentTime().toString();
     }
 
     // 使用当前范围生成随机数据

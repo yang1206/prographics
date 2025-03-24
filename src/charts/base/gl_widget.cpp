@@ -3,6 +3,18 @@
 namespace ProGraphics {
     BaseGLWidget::BaseGLWidget(QWidget *parent)
         : QOpenGLWidget(parent), m_program(nullptr) {
+        // 设置更新策略，减少不必要的重绘
+        setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+
+        // 预分配资源
+        QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+        format.setSamples(4); // 设置多重采样
+        format.setSwapInterval(1); // 垂直同步
+        setFormat(format);
+
+        // 强制初始化 OpenGL 上下文
+        makeCurrent();
+        doneCurrent();
     }
 
     BaseGLWidget::~BaseGLWidget() {
