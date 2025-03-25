@@ -57,7 +57,6 @@ namespace ProGraphics {
     void BaseGLWidget::paintGL() {
         glClear(GL_COLOR_BUFFER_BIT);
         paintGLObjects();
-        update();
     }
 
     void BaseGLWidget::resizeGL(int w, int h) { glViewport(0, 0, w, h); }

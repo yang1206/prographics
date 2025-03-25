@@ -17,17 +17,22 @@
 #include <cmath>
 #include <random>
 
+// 在文件开头添加包含
+#include "src/performance/PerformanceTest.h"
+
+// 在 MainWindow 构造函数中添加新的标签页
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabWidget = new QTabWidget(this);
     setCentralWidget(m_tabWidget);
     // 添加第一个示例
-    m_prpsChart = new ProGraphics::PRPSChart(this);
-    m_tabWidget->addTab(m_prpsChart, "PRPS");
-    m_prpdChart = new ProGraphics::PRPDChart(this);
-    m_tabWidget->addTab(m_prpdChart, "PRPD");
+    // m_prpsChart = new ProGraphics::PRPSChart(this);
+    // m_tabWidget->addTab(m_prpsChart, "PRPS");
+    // m_prpdChart = new ProGraphics::PRPDChart(this);
+    // m_tabWidget->addTab(m_prpdChart, "PRPD");
+    m_tabWidget->addTab(new PerformanceTest(this), "性能测试");
 
-    m_tabWidget->addTab(new TestCoordinate3d(this), "测试3d坐标系统");
-    m_tabWidget->addTab(new TestCoordinate2d(this), "测试2d坐标系统");
+    // m_tabWidget->addTab(new TestCoordinate3d(this), "测试3d坐标系统");
+    // m_tabWidget->addTab(new TestCoordinate2d(this), "测试2d坐标系统");
     // m_tabWidget->addTab(new PlayGround(this), "示例游乐场");
     // m_tabWidget->addTab(new ThreeDCoordinate(this), "3维坐标系");
     // m_tabWidget->addTab(new TexturedRectWidget(this), "纹理矩形");
@@ -39,9 +44,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // 设置窗口大小
     resize(800, 600);
     // 设置数据生成定时器
-    connect(&m_dataTimer, &QTimer::timeout, this, &MainWindow::generateTestData);
-    m_dataTimer.setInterval(20); // 每100ms生成一次数据
-    m_dataTimer.start();
+    // connect(&m_dataTimer, &QTimer::timeout, this, &MainWindow::generateTestData);
+    // m_dataTimer.setInterval(20); // 每100ms生成一次数据
+    // m_dataTimer.start();
 }
 
 void MainWindow::generateTestData() {
@@ -144,8 +149,8 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
     // 如果范围改变，输出日志
     if (newRangeIndex != currentRangeIndex) {
         currentRangeIndex = newRangeIndex;
-        qDebug() << "切换数据范围: " << ranges[currentRangeIndex].min << " 到 " << ranges[currentRangeIndex].max
-                << QTime::currentTime().toString();
+        // qDebug() << "切换数据范围: " << ranges[currentRangeIndex].min << " 到 " << ranges[currentRangeIndex].max
+        //         << QTime::currentTime().toString();
     }
 
     // 使用当前范围生成随机数据

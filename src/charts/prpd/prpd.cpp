@@ -87,8 +87,6 @@ namespace ProGraphics {
             return;
         }
 
-        // 记录旧的显示范围
-        auto [oldDisplayMin, oldDisplayMax] = m_dynamicRange.getDisplayRange();
 
         // 更新动态量程
         bool rangeChanged = false;
