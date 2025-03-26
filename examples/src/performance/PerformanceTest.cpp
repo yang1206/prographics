@@ -4,24 +4,19 @@
 #include <QElapsedTimer>
 #include <QPushButton>
 #include <QTime>
+#include <QDebug>
 #include <random>
 #include "DataProcessor.h"
 
 
 PerformanceTest::PerformanceTest(QWidget *parent) : QWidget(parent) {
     setupUI();
-    m_dataThread = new QThread(this);
-    m_dataProcessor = new DataProcessor();
-    m_dataProcessor->moveToThread(m_dataThread);
+
+    // 创建数据处理器
+    m_dataProcessor = new DataProcessor(this);
 
     // 连接信号和槽
-    connect(m_dataThread, &QThread::started, m_dataProcessor, &DataProcessor::startProcessing);
     connect(m_dataProcessor, &DataProcessor::dataReady, this, &PerformanceTest::updateCharts, Qt::QueuedConnection);
-    connect(this, &PerformanceTest::destroyed, m_dataThread, &QThread::quit);
-    connect(m_dataThread, &QThread::finished, m_dataProcessor, &DataProcessor::deleteLater);
-    connect(m_dataThread, &QThread::finished, m_dataThread, &QThread::deleteLater);
-
-    m_dataThread->start();
 
     // 设置FPS计算定时器
     connect(&m_fpsTimer, &QTimer::timeout, this, &PerformanceTest::updateFPS);
@@ -30,9 +25,16 @@ PerformanceTest::PerformanceTest(QWidget *parent) : QWidget(parent) {
 
     // 初始化性能计时器
     m_performanceTimer.start();
-    
+
     // 重置帧计数
     m_frameCount = 0;
+
+    // 启动数据处理 - 放在最后，确保所有连接都已建立
+    QTimer::singleShot(100, m_dataProcessor, &DataProcessor::startProcessing);
+}
+
+PerformanceTest::~PerformanceTest() {
+    // 不需要显式删除m_dataProcessor，因为它是QObject的子对象
 }
 
 void PerformanceTest::setupUI() {
@@ -84,23 +86,36 @@ void PerformanceTest::updateFPS() {
 }
 
 void PerformanceTest::updateCharts(const std::vector<float> &data) {
+    if (data.empty()) {
+        qDebug() << "收到空数据";
+        return;
+    }
+
     QElapsedTimer timer;
     timer.start();
 
-    // 更新所有图表
-    for (auto &pair: m_chartPairs) {
-        pair.prps->addCycleData(data);
-        pair.prpd->addCycleData(data);
+    try {
+        // 更新所有图表
+        for (auto &pair: m_chartPairs) {
+            if (pair.prps && pair.prpd) {
+                pair.prps->addCycleData(data);
+                pair.prpd->addCycleData(data);
+            }
+        }
+
+        // 记录渲染时间
+        m_lastRenderTime = timer.elapsed();
+
+        // 增加帧计数
+        m_frameCount++;
+
+        // 标记数据已处理，允许生成新数据
+        m_dataProcessor->markDataProcessed();
+    } catch (const std::exception &e) {
+        qDebug() << "更新图表异常:" << e.what();
+    } catch (...) {
+        qDebug() << "更新图表未知异常";
     }
-
-    // 记录渲染时间
-    m_lastRenderTime = timer.elapsed();
-
-    // 增加帧计数
-    m_frameCount++;
-    
-    // 标记数据已处理，允许生成新数据
-    m_dataProcessor->markDataProcessed();
 }
 
 void PerformanceTest::validateSharedContext() {

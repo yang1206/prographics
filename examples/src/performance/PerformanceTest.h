@@ -1,12 +1,11 @@
 ﻿#pragma once
-
-#include <QElapsedTimer>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QElapsedTimer>
 #include "prographics/charts/prpd/prpd.h"
 #include "prographics/charts/prps/prps.h"
 
@@ -17,8 +16,7 @@ class PerformanceTest : public QWidget {
 
 public:
     explicit PerformanceTest(QWidget *parent = nullptr);
-
-    ~PerformanceTest() override = default;
+    ~PerformanceTest() override;
 
 private:
     struct ChartPair {
@@ -37,16 +35,14 @@ private:
     double m_lastDataProcessTime = 0.0;
     double m_lastRenderTime = 0.0;
 
-    QThread *m_dataThread;
-    DataProcessor *m_dataProcessor;
+    // 数据处理器
+    DataProcessor *m_dataProcessor = nullptr;
 
 private slots:
     void updateFPS();
-
     void updateCharts(const std::vector<float> &data);
+    void validateSharedContext();
 
 private:
     void setupUI();
-
-    void validateSharedContext();
 };
