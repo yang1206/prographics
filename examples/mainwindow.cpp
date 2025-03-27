@@ -122,8 +122,13 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         float max;
     } ranges[] = {
                 // {-2000.0f, 1000.0f}, // 范围1: 负值到正值
-                {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
-                {2000.0f, 3000.0f} // 范围3: 全正值较小范围
+                // {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
+                // {-1800, -1200}, // 范围4: 全正值较小范围
+                // {0.0, 200}, // 范围5: 全正值较大范围
+                // {2000.0f, 3000.0f}, // 范围3: 全正值较小范围
+                // {0.0f, 70.0f},
+                // {0.0f, 1.5f},
+                {100.0f, 200.0f}
             };
 
     // 跟踪时间和当前范围
@@ -136,16 +141,15 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         initialized = true;
     }
 
-    // 每20秒切换一次范围
-    const int rangeDurationMs = 10000; // 20秒
+    const int rangeDurationMs = 10000;
     int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
     int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 
     // 如果范围改变，输出日志
     if (newRangeIndex != currentRangeIndex) {
         currentRangeIndex = newRangeIndex;
-        qDebug() << "切换数据范围: " << ranges[currentRangeIndex].min << " 到 " << ranges[currentRangeIndex].max
-                << QTime::currentTime().toString();
+        // qDebug() << "切换数据范围: " << ranges[currentRangeIndex].min << " 到 " << ranges[currentRangeIndex].max
+        //         << QTime::currentTime().toString();
     }
 
     // 使用当前范围生成随机数据

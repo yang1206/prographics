@@ -79,130 +79,177 @@ namespace ProGraphics {
         return hsvToRgb(hue, saturation, value, alpha);
     }
 
-    // 刻度计算工具函数
-    inline float calculateTickStep(float range) {
-        if (range <= 10.0f)
+    // 优化的刻度计算函数
+    inline float calculateNiceTickStep(float range, int targetTicks = 6) {
+        // 确保范围和目标刻度数有效
+        if (range <= 0 || targetTicks <= 0) {
             return 1.0f;
-        if (range <= 20.0f)
-            return 2.0f;
-        if (range <= 50.0f)
-            return 5.0f;
-        if (range <= 100.0f)
-            return 8.0f;
-        if (range <= 200.0f)
-            return 10.0f;
-        if (range <= 500.0f)
-            return 20.0f;
-        if (range <= 1000.0f)
-            return 50.0f;
-        if (range <= 2000.0f)
-            return 100.0f;
-        if (range <= 3000.0f)
-            return 200.0f;
-        if (range <= 4000.0f)
-            return 300.0f;
-        if (range <= 5000.0f)
-            return 500.0f;
-        return std::pow(10.0f, std::floor(std::log10(range / 10.0f)));
-    }
+        }
 
-    // 计算美观的刻度步长
-    inline float calculateNiceTickStep(float range, int targetTickCount = 5) {
-        // 计算粗略步长
-        float roughStep = range / targetTickCount;
+        // 计算粗略的步长
+        float roughStep = range / (float) targetTicks;
 
         // 计算步长的数量级
         float magnitude = std::pow(10.0f, std::floor(std::log10(roughStep)));
 
-        // 标准化步长到 1-10 范围
+        // 计算标准化步长
         float normalizedStep = roughStep / magnitude;
 
-        // 选择最接近的美观步长
+        // 选择美观的步长
         float niceStep;
-        if (normalizedStep < 1.5f)
+        if (normalizedStep < 1.5f) {
             niceStep = 1.0f;
-        else if (normalizedStep < 3.0f)
+        } else if (normalizedStep < 3.0f) {
             niceStep = 2.0f;
-        else if (normalizedStep < 7.0f)
+        } else if (normalizedStep < 7.0f) {
             niceStep = 5.0f;
-        else
+        } else {
             niceStep = 10.0f;
+        }
 
+        // 最终步长
         return niceStep * magnitude;
     }
 
-    // 计算美观的范围
-    inline std::pair<float, float> calculateNiceRange(float min, float max, int tickCount = 5) {
-        // 确保min和max不相等
-        if (std::abs(max - min) < 1e-6f) {
-            max = min + 1.0f;
+    // 查找接近值的美观数字（避免小数）
+    inline float findNiceNumber(float value, bool ceiling = false) {
+        // 确定数量级
+        float sign = (value >= 0) ? 1.0f : -1.0f;
+        float absValue = std::abs(value);
+
+        if (absValue < 1e-6f) {
+            return 0.0f; // 处理接近零的情况
         }
 
-        // 确保min < max
+        float magnitude = std::pow(10.0f, std::floor(std::log10(absValue)));
+        float normalized = absValue / magnitude; // 1.0 到 9.999...
+
+        // 美观数字序列
+        const float niceNumbers[] = {1.0f, 2.0f, 2.5f, 5.0f, 10.0f};
+
+        if (ceiling) {
+            // 向上取美观值
+            for (float nice: niceNumbers) {
+                if (normalized <= nice) {
+                    return sign * nice * magnitude;
+                }
+            }
+            return sign * 10.0f * magnitude; // 如果超过所有值
+        } else {
+            // 向下取美观值
+            for (int i = sizeof(niceNumbers) / sizeof(niceNumbers[0]) - 1; i >= 0; i--) {
+                if (normalized >= niceNumbers[i]) {
+                    return sign * niceNumbers[i] * magnitude;
+                }
+            }
+            return sign * 1.0f * magnitude; // 如果小于所有值
+        }
+    }
+
+    // 优化的范围计算函数
+    inline std::pair<float, float> calculateNiceRange(float min, float max, int tickCount = 6) {
+        // 处理特殊情况
         if (min > max) {
             std::swap(min, max);
         }
 
-        // 计算范围
         float range = max - min;
 
-        // 计算粗略的刻度间隔
-        float roughStep = range / (tickCount - 1);
+        // 对于非常小的范围，使用更精确的处理
+        if (range < 0.001f) {
+            range = 0.001f;
+            max = min + range;
+        }
 
-        // 计算步长的数量级
-        float magnitude = std::pow(10.0f, std::floor(std::log10(roughStep)));
+        // 计算刻度步长
+        float niceStep = calculateNiceTickStep(range, tickCount);
 
-        // 标准化步长到1-10范围
-        float normalizedStep = roughStep / magnitude;
-
-        // 选择最接近的美观步长
-        float niceStep;
-        if (normalizedStep < 1.5f)
-            niceStep = 1.0f;
-        else if (normalizedStep < 3.0f)
-            niceStep = 2.0f;
-        else if (normalizedStep < 7.0f)
-            niceStep = 5.0f;
-        else
-            niceStep = 10.0f;
-
-        niceStep *= magnitude;
-
-        // 计算美观的最小值和最大值
+        // 计算美观的最小值（向下取整到最接近的步长倍数）
         float niceMin = std::floor(min / niceStep) * niceStep;
-        float niceMax = std::ceil(max / niceStep) * niceStep;
+
+        // 特殊处理：如果原始最小值接近0且为正数，则使用0作为最小值
+        if (min >= 0 && min < niceStep * 0.5f) {
+            niceMin = 0.0f;
+        }
+
+        // 特殊处理：如果原始最小值为正数，但计算出的美观最小值为负数，则使用0作为最小值
+        if (min > 0 && niceMin < 0) {
+            niceMin = 0.0f;
+        }
+
+        // 特殊处理：对于较大的正数范围，如果最小值远离0，不应该将最小值设为0
+        if (min > 1000.0f && max > 1000.0f) {
+            // 确保最小值不会被强制设为0
+            niceMin = std::floor(min / niceStep) * niceStep;
+        }
+
+        // 计算美观的最大值
+        // 确保范围包含足够的刻度
+        float niceMax = niceMin + std::ceil((max - niceMin) / niceStep) * niceStep;
+
+        // 确保至少有tickCount个刻度
+        int steps = std::round((niceMax - niceMin) / niceStep);
+        if (steps < tickCount) {
+            // 对于小范围数据，尝试减小步长而不是扩大范围
+            if (range < 10.0f && steps >= tickCount - 1) {
+                // 如果只差一个刻度，尝试减小步长
+                float smallerStep = niceStep * 0.5f;
+                if (smallerStep > 0) {
+                    steps = std::round((niceMax - niceMin) / smallerStep);
+                    if (steps >= tickCount) {
+                        return {niceMin, niceMax}; // 使用更小的步长
+                    }
+                }
+            }
+            // 特殊处理：对于小范围数据，尝试使用更紧凑的范围
+            if (range < 5.0f && max <= 2.0f) {
+                // 对于[0, 1.5]这样的范围，尝试使用[0, 2.0]而不是[0, 2.5]
+                if (niceMin == 0.0f && niceMax > max * 1.5f) {
+                    // 找到一个更合适的最大值
+                    float betterMax = std::ceil(max * 1.2f / niceStep) * niceStep;
+                    if (betterMax >= max && (betterMax - niceMin) / niceStep >= tickCount - 1) {
+                        niceMax = betterMax;
+                    }
+                }
+            }
+            niceMax = niceMin + tickCount * niceStep;
+        }
 
         return {niceMin, niceMax};
     }
 
-    // 动态范围管理类
+    // 动态量程配置类
     class DynamicRange {
     public:
-        // 范围参数配置结构体
+        // 统一的范围参数配置结构体
         struct DynamicRangeConfig {
-            // 不再使用默认成员初始化，改为在构造函数中初始化
-            float expandThreshold; // 数据超出范围多少比例后扩展
-            float shrinkThreshold; // 数据使用范围少于多少比例时收缩
-            float expandBufferRatio; // 扩展缓冲区比例
-            float shrinkBufferRatio; // 收缩缓冲区比例
-            float minRangeChangeRatio; // 最小范围变化比例，小于此比例不更新
-            int tickCount; // 目标刻度数
-            int stabilityCheckSize; // 稳定性检测样本数
-            float stabilityThreshold; // 稳定性阈值
-            int stableCounterThreshold; // 稳定计数器阈值
+            // 范围更新相关
+            float expandThreshold = 0.2f; // 数据超出范围多少比例后扩展
+            float shrinkThreshold = 0.3f; // 数据使用范围少于多少比例时收缩
+            float expandBufferRatio = 0.10f; // 扩展缓冲区比例
+            float shrinkBufferRatio = 0.1f; // 收缩缓冲区比例
+            float minRangeChangeRatio = 0.08f; // 最小范围变化比例，小于此比例不更新
 
-            // 构造函数设置默认值
-            DynamicRangeConfig()
-                : expandThreshold(0.2f),
-                  shrinkThreshold(0.3f),
-                  expandBufferRatio(0.10f),
-                  shrinkBufferRatio(0.1f),
-                  minRangeChangeRatio(0.08f),
-                  tickCount(5),
-                  stabilityCheckSize(30),
-                  stabilityThreshold(0.2f),
-                  stableCounterThreshold(5) {
-            }
+            // 美观刻度相关
+            int tickCount = 6; // 目标刻度数
+
+            // 稳定性检测相关
+            int stabilityCheckSize = 30; // 稳定性检测样本数
+            float stabilityThreshold = 0.2f; // 稳定性阈值
+            int stableCounterThreshold = 5; // 稳定计数器阈值
+
+            // 特殊范围处理
+            float smallRangeThreshold = 5.0f; // 小范围阈值
+            float smallRangeBuffer = 0.05f; // 小范围缓冲区比例
+            float minBuffer = 0.0f; // 最小值缓冲区比例
+            float maxBuffer = 0.01f; // 最大值缓冲区比例
+
+            // 收缩范围相关
+            float shrinkStepBase = 0.05f; // 基础收缩步长
+            float shrinkStepMax = 0.2f; // 最大收缩步长
+
+            // 范围变化检测
+            float rangeChangeEpsilon = 0.01f; // 浮点数比较容差
         };
 
         // 构造函数
@@ -215,6 +262,15 @@ namespace ProGraphics {
               m_displayMax(initialMax),
               m_config(config),
               m_rangeInitialized(false) {
+        }
+
+        const DynamicRangeConfig &getConfig() const {
+            return m_config;
+        }
+
+        // 设置配置
+        void setConfig(const DynamicRangeConfig &config) {
+            m_config = config;
         }
 
         // 更新范围，返回是否需要重建绘图数据
@@ -238,22 +294,35 @@ namespace ProGraphics {
 
                 // 计算初始显示范围（带缓冲）
                 float dataRange = newMax - newMin;
-                float buffer = dataRange * 0.1f;
+                float buffer = dataRange * 0.001f; // 使用较小的缓冲区
 
-                auto [initialMin, initialMax] =
-                        calculateNiceRange(newMin - buffer, newMax + buffer, m_config.tickCount);
+                // 对于正数范围，确保最小值不会因缓冲区变为负数
+                float minWithBuffer = (newMin >= 0) ? std::max(0.0f, newMin - buffer) : newMin - buffer;
+                float maxWithBuffer = newMax + buffer;
+
+                auto [initialMin, initialMax] = calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.tickCount);
 
                 m_displayMin = initialMin;
                 m_displayMax = initialMax;
-
                 m_rangeInitialized = true;
-                // qDebug() << "范围初始化:" << m_displayMin << "到" << m_displayMax;
+
+                qDebug() << "初始化范围:" << newMin << "到" << newMax;
+                qDebug() << "缓冲后范围:" << minWithBuffer << "到" << maxWithBuffer;
+                qDebug() << "美观范围:" << m_displayMin << "到" << m_displayMax;
+
                 return true;
             }
 
             // 更新实际数据范围
-            m_dataMin = std::min(m_dataMin, newMin);
-            m_dataMax = std::max(m_dataMax, newMax);
+            bool dataRangeChanged = false;
+            if (newMin < m_dataMin) {
+                m_dataMin = newMin;
+                dataRangeChanged = true;
+            }
+            if (newMax > m_dataMax) {
+                m_dataMax = newMax;
+                dataRangeChanged = true;
+            }
 
             // 跟踪最近范围以检测稳定性
             m_recentRanges.push_back({newMin, newMax});
@@ -262,7 +331,7 @@ namespace ProGraphics {
             }
 
             // 减少更新频率
-            if (++m_updateCounter % 10 != 0) {
+            if (++m_updateCounter % 10 != 0 && !dataRangeChanged) {
                 return false;
             }
             m_updateCounter = 0;
@@ -270,8 +339,11 @@ namespace ProGraphics {
             // 检查数据稳定性
             bool forceUpdate = checkDataStability();
 
-            // 周期性范围检查
-            if (++m_resetCounter % 50 == 0 || forceUpdate) {
+            // 检查数据是否超出当前显示范围
+            bool dataOutOfRange = newMin < m_displayMin || newMax > m_displayMax;
+
+            // 周期性范围检查或强制更新或数据超出范围
+            if (++m_resetCounter % 50 == 0 || forceUpdate || dataOutOfRange) {
                 m_resetCounter = 0;
 
                 // 确保数据范围有效
@@ -280,48 +352,20 @@ namespace ProGraphics {
                 }
 
                 // 计算新的显示范围
-                auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(forceUpdate);
+                auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(forceUpdate || dataOutOfRange);
 
                 // 检查显示范围是否发生显著变化
-                bool rangeChanged =
-                        isRangeChangedSignificantly(oldDisplayMin, oldDisplayMax, newDisplayMin, newDisplayMax,
-                                                    forceUpdate);
+                bool rangeChanged = isRangeChangedSignificantly(oldDisplayMin, oldDisplayMax,
+                                                                newDisplayMin, newDisplayMax,
+                                                                forceUpdate || dataOutOfRange);
 
                 if (rangeChanged) {
-                    // qDebug() << "显示范围更新:"
-                    //         << "旧范围:" << m_displayMin << "到" << m_displayMax << "新范围:" << newDisplayMin << "到"
-                    //         << newDisplayMax << (forceUpdate ? " (强制更新)" : "");
-
                     m_displayMin = newDisplayMin;
                     m_displayMax = newDisplayMax;
-                    return true;
-                }
-                return false;
-            }
 
-            // 检查数据是否超出当前显示范围
-            bool dataOutOfRange = newMin < m_displayMin || newMax > m_displayMax;
+                    qDebug() << "动态范围:" << m_displayMin << "到" << m_displayMax;
+                    qDebug() << "计算步长:" << calculateNiceTickStep(m_displayMax - m_displayMin, m_config.tickCount);
 
-            if (dataOutOfRange) {
-                // 确保数据范围有效
-                if (m_dataMin > m_dataMax) {
-                    std::swap(m_dataMin, m_dataMax);
-                }
-
-                // 计算新的显示范围
-                auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(false);
-
-                // 检查显示范围是否发生变化
-                bool rangeChanged =
-                        isRangeChangedSignificantly(oldDisplayMin, oldDisplayMax, newDisplayMin, newDisplayMax, false);
-
-                if (rangeChanged) {
-                    // qDebug() << "显示范围更新(数据超出):"
-                    //         << "旧范围:" << m_displayMin << "到" << m_displayMax << "新范围:" << newDisplayMin << "到"
-                    //         << newDisplayMax;
-
-                    m_displayMin = newDisplayMin;
-                    m_displayMax = newDisplayMax;
                     return true;
                 }
             }
@@ -413,185 +457,67 @@ namespace ProGraphics {
             return false;
         }
 
-        // 计算应该使用的显示范围
+        // 优化的显示范围计算
         std::pair<float, float> calculateDisplayRange(bool forceUpdate) {
-            if (forceUpdate || !m_rangeInitialized) {
-                // 计算数据范围
-                float dataRange = m_dataMax - m_dataMin;
-
-                // 特殊情况：数据范围太小
-                if (dataRange < 1e-6f) {
-                    dataRange = 1.0f;
-                    m_dataMax = m_dataMin + 1.0f;
-                }
-
-                // 使用查找表方式确定缓冲区大小
-                float bufferMin, bufferMax;
-
-                // 基于数据范围大小和特性确定缓冲区
-                if (m_dataMin >= 0 && m_dataMax >= 0) {
-                    // 全正数据
-                    if (dataRange < 10.0f) {
-                        bufferMin = 1.0f;
-                        bufferMax = dataRange * 0.1f + 1.0f;
-                    } else if (dataRange < 100.0f) {
-                        bufferMin = std::min(5.0f, dataRange * 0.05f);
-                        bufferMax = dataRange * 0.08f + 2.0f;
-                    } else if (dataRange < 1000.0f) {
-                        bufferMin = std::min(10.0f, dataRange * 0.03f);
-                        bufferMax = dataRange * 0.05f + 5.0f;
-                    } else {
-                        bufferMin = std::min(50.0f, dataRange * 0.02f);
-                        bufferMax = dataRange * 0.03f + 10.0f;
-                    }
-                    // 如果最小值接近0，直接从0开始
-                    if (m_dataMin < bufferMin * 2) {
-                        bufferMin = m_dataMin;
-                    }
-                } else if (m_dataMin < 0 && m_dataMax < 0) {
-                    // 全负数据
-                    if (std::abs(dataRange) < 10.0f) {
-                        bufferMax = 1.0f;
-                        bufferMin = dataRange * 0.1f + 1.0f;
-                    } else if (std::abs(dataRange) < 100.0f) {
-                        bufferMax = std::min(5.0f, dataRange * 0.05f);
-                        bufferMin = dataRange * 0.08f + 2.0f;
-                    } else if (std::abs(dataRange) < 1000.0f) {
-                        bufferMax = std::min(10.0f, dataRange * 0.03f);
-                        bufferMin = dataRange * 0.05f + 5.0f;
-                    } else {
-                        bufferMax = std::min(50.0f, dataRange * 0.02f);
-                        bufferMin = dataRange * 0.03f + 10.0f;
-                    }
-                    // 如果最大值接近0，直接到0结束
-                    if (std::abs(m_dataMax) < bufferMax * 2) {
-                        bufferMax = std::abs(m_dataMax);
-                    }
-                } else {
-                    // 跨零数据
-                    float absMin = std::abs(m_dataMin);
-                    float absMax = std::abs(m_dataMax);
-                    float maxAbs = std::max(absMin, absMax);
-
-                    if (maxAbs < 10.0f) {
-                        // 小范围数据，使用对称范围
-                        float buffer = maxAbs * 0.1f + 0.5f;
-                        bufferMin = buffer;
-                        bufferMax = buffer;
-                    } else if (maxAbs < 100.0f) {
-                        float buffer = maxAbs * 0.08f + 2.0f;
-                        bufferMin = buffer;
-                        bufferMax = buffer;
-                    } else if (maxAbs < 1000.0f) {
-                        float buffer = maxAbs * 0.05f + 5.0f;
-                        bufferMin = buffer;
-                        bufferMax = buffer;
-                    } else {
-                        float buffer = maxAbs * 0.03f + 10.0f;
-                        bufferMin = buffer;
-                        bufferMax = buffer;
-                    }
-
-                    // 如果正负值明显不对称，调整缓冲区比例
-                    if (absMin / absMax < 0.3f || absMax / absMin < 0.3f) {
-                        if (absMin < absMax) {
-                            bufferMin = std::min(bufferMin, absMin * 0.5f);
-                        } else {
-                            bufferMax = std::min(bufferMax, absMax * 0.5f);
-                        }
-                    }
-                }
-
-                // 应用缓冲区
-                float minWithBuffer = m_dataMin - bufferMin;
-                float maxWithBuffer = m_dataMax + bufferMax;
-
-                // 计算美观范围
-                auto [niceMin, niceMax] = calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.tickCount);
-
-                // 进一步优化美观范围 - 修剪过大的空白区域
-                if (niceMin < m_dataMin - dataRange * 0.5f && m_dataMin > 0) {
-                    // 对于正数据，避免在0附近有太多空白
-                    niceMin = 0.0f;
-                }
-
-                if (niceMax > m_dataMax + dataRange * 0.5f && m_dataMax < 0) {
-                    // 对于负数据，避免在0附近有太多空白
-                    niceMax = 0.0f;
-                }
-
-                return {niceMin, niceMax};
-            }
-
-            // 非强制更新情况下的逻辑
+            // 当前显示范围
             float currentRange = m_displayMax - m_displayMin;
+
+            // 数据范围
+            float dataRange = m_dataMax - m_dataMin;
 
             // 检查数据是否超出当前显示范围
             bool dataOutOfRange = m_dataMin < m_displayMin || m_dataMax > m_displayMax;
 
-            if (dataOutOfRange) {
-                // 数据超出显示范围，计算新的范围
-                float expandedMin = std::min(m_displayMin, m_dataMin);
-                float expandedMax = std::max(m_displayMax, m_dataMax);
+            if (forceUpdate || dataOutOfRange) {
+                // 需要扩展范围
+                float expandedMin = m_dataMin;
+                float expandedMax = m_dataMax;
 
-                // 仅为新超出部分添加缓冲区
-                float bufferMin = 0.0f, bufferMax = 0.0f;
+                // 对于小范围数据，使用更小的缓冲区
+                float bufferRatio = (dataRange < 10.0f) ? 0.05f : m_config.expandBufferRatio;
 
-                if (m_dataMin < m_displayMin) {
-                    // 下限需要扩展
-                    float overshoot = m_displayMin - m_dataMin;
-                    bufferMin = std::min(overshoot * 0.2f, 50.0f);
+                // 添加缓冲区
+                float buffer = dataRange * bufferRatio;
+
+                // 对于正数范围，确保最小值不会因缓冲区变为负数
+                if (m_dataMin >= 0) {
+                    expandedMin = std::max(0.0f, m_dataMin - buffer * m_config.minBuffer);
+                } else {
+                    expandedMin = m_dataMin - buffer * m_config.minBuffer;
                 }
 
-                if (m_dataMax > m_displayMax) {
-                    // 上限需要扩展
-                    float overshoot = m_dataMax - m_displayMax;
-                    bufferMax = std::min(overshoot * 0.2f, 50.0f);
+                expandedMax = m_dataMax + buffer * m_config.maxBuffer;
+                // 特殊处理：对于较大的正数范围，保持最小值接近数据最小值
+                if (m_dataMin > 1000.0f && m_dataMax > 1000.0f) {
+                    // 不要让最小值太远离数据最小值
+                    expandedMin = m_dataMin - dataRange * 0.05f;
                 }
-
                 // 计算美观范围
-                return calculateNiceRange(expandedMin - bufferMin, expandedMax + bufferMax, m_config.tickCount);
+                return calculateNiceRange(expandedMin, expandedMax, m_config.tickCount);
             } else {
                 // 检测是否应该收缩范围
-                float dataRange = m_dataMax - m_dataMin;
                 float usageRatio = dataRange / currentRange;
 
                 if (usageRatio < (1.0f - m_config.shrinkThreshold)) {
                     // 数据只使用了显示范围的一小部分，应该收缩
-                    float targetMin, targetMax;
 
-                    if (m_dataMin >= 0 && m_dataMax >= 0) {
-                        // 全正数据
-                        targetMin = (m_dataMin < dataRange * 0.1f) ? 0.0f : m_dataMin - dataRange * 0.1f;
-                        targetMax = m_dataMax + dataRange * 0.15f;
-                    } else if (m_dataMin < 0 && m_dataMax < 0) {
-                        // 全负数据
-                        targetMin = m_dataMin - dataRange * 0.15f;
-                        targetMax = (m_dataMax > -dataRange * 0.1f) ? 0.0f : m_dataMax + dataRange * 0.1f;
-                    } else {
-                        // 跨零数据
-                        float absMin = std::abs(m_dataMin);
-                        float absMax = std::abs(m_dataMax);
+                    // 对于小范围数据，使用更保守的收缩
+                    float shrinkStep = (dataRange < 10.0f) ? 0.02f : m_config.shrinkStepBase;
 
-                        if (absMin < absMax * 0.2f) {
-                            // 负值较小，给正值更多空间
-                            targetMin = m_dataMin - dataRange * 0.08f;
-                            targetMax = m_dataMax + dataRange * 0.15f;
-                        } else if (absMax < absMin * 0.2f) {
-                            // 正值较小，给负值更多空间
-                            targetMin = m_dataMin - dataRange * 0.15f;
-                            targetMax = m_dataMax + dataRange * 0.08f;
-                        } else {
-                            // 正负值相当，均匀分配空间
-                            targetMin = m_dataMin - dataRange * 0.12f;
-                            targetMax = m_dataMax + dataRange * 0.12f;
-                        }
+                    // 目标范围
+                    float targetMin = m_dataMin;
+                    // 对于正数范围，确保最小值不会变为负数
+                    if (m_dataMin >= 0) {
+                        targetMin = std::max(0.0f, targetMin);
                     }
+                    // 特殊处理：对于较大的正数范围，保持最小值接近数据最小值
+                    if (m_dataMin > 1000.0f && m_dataMax > 1000.0f) {
+                        // 不要让最小值太远离数据最小值
+                        targetMin = m_dataMin - dataRange * 0.05f;
+                    }
+                    float targetMax = m_dataMax + dataRange * m_config.maxBuffer;
 
-                    // 平滑过渡，但当使用率低时收缩更快
-                    float shrinkStep = 0.03f * (1.0f - usageRatio) * 2.0f;
-                    shrinkStep = std::min(shrinkStep, 0.2f); // 限制最大收缩步长
-
+                    // 计算新范围
                     float newMin = m_displayMin + (targetMin - m_displayMin) * shrinkStep;
                     float newMax = m_displayMax + (targetMax - m_displayMax) * shrinkStep;
 
@@ -605,26 +531,33 @@ namespace ProGraphics {
         }
 
         // 检查范围是否发生显著变化
-        bool isRangeChangedSignificantly(float oldMin, float oldMax, float newMin, float newMax, bool forceUpdate) {
-            if (forceUpdate)
+        bool isRangeChangedSignificantly(float oldMin, float oldMax,
+                                         float newMin, float newMax,
+                                         bool forceUpdate) {
+            // 如果强制更新，则始终返回true
+            if (forceUpdate) {
                 return true;
+            }
 
-            const float epsilon = 0.0001f; // 浮点数比较的容差
-
-            // 检查最小值和最大值是否有明显变化
-            bool minChanged = std::abs(newMin - oldMin) > epsilon;
-            bool maxChanged = std::abs(newMax - oldMax) > epsilon;
-
-            if (!minChanged && !maxChanged)
-                return false;
-
-            // 计算变化的比例
+            // 计算范围变化比例
             float oldRange = oldMax - oldMin;
-            float minChangePct = std::abs(newMin - oldMin) / oldRange;
-            float maxChangePct = std::abs(newMax - oldMax) / oldRange;
+            float newRange = newMax - newMin;
 
-            // 只有当变化比例超过阈值时才认为是显著变化
-            return (minChangePct > m_config.minRangeChangeRatio || maxChangePct > m_config.minRangeChangeRatio);
+            // 避免除以零
+            if (oldRange < 0.001f) {
+                oldRange = 0.001f;
+            }
+
+            float rangeChangeRatio = std::abs(newRange - oldRange) / oldRange;
+
+            // 检查最小值和最大值的变化
+            float minChangeRatio = std::abs(newMin - oldMin) / oldRange;
+            float maxChangeRatio = std::abs(newMax - oldMax) / oldRange;
+
+            // 如果范围变化比例或最小值/最大值变化比例超过阈值，则认为范围发生了显著变化
+            return rangeChangeRatio > m_config.minRangeChangeRatio ||
+                   minChangeRatio > m_config.minRangeChangeRatio ||
+                   maxChangeRatio > m_config.minRangeChangeRatio;
         }
 
         // 数据范围

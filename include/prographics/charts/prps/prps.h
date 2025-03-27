@@ -40,10 +40,22 @@ namespace ProGraphics {
         // 配置接口
         void setThreshold(float threshold) { m_threshold = threshold; }
 
-        void setAmplitudeRange(float min, float max);
+
         void setPhaseRange(float min, float max);
+
+        void setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config);
+
+        void setAmplitudeRange(float min, float max);
+
         void setDynamicRangeEnabled(bool enabled);
+
         bool isDynamicRangeEnabled() const;
+
+        void resetData() {
+            m_currentCycles.clear();
+            m_threshold = 0.1f;
+            update();
+        };
 
     protected:
         void initializeGLObjects() override;
@@ -78,13 +90,18 @@ namespace ProGraphics {
 
         // 处理方法
         void processCurrentCycles();
+
         void updatePRPSAnimation();
+
         void cleanupInactiveGroups();
 
         // 坐标映射方法
         float mapPhaseToGL(float phase) const;
+
         float mapAmplitudeToGL(float amplitude) const;
+
         float mapGLToPhase(float glX) const;
+
         float mapGLToAmplitude(float glY) const;
 
         // 重新计算所有线组的方法

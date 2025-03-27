@@ -18,18 +18,22 @@ namespace ProGraphics {
 
     // 初始化动态量程
     DynamicRange::DynamicRangeConfig config;
-    config.expandThreshold = 0.2f;
-    config.shrinkThreshold = 0.3f;
-    config.stabilityCheckSize = 30;
-    config.stabilityThreshold = 0.2f;
-    config.stableCounterThreshold = 5;
+    config.expandThreshold = 0.1f; // 降低扩展阈值，更积极扩展
+    config.shrinkThreshold = 0.4f; // 提高收缩阈值，减少收缩频率
+    config.stabilityCheckSize = 20; // 减少稳定性检查样本数
+    config.stableCounterThreshold = 3; // 减少稳定计数器阈值
+    config.tickCount = 5; // 设置期望的刻度数量为5
+    config.minBuffer = 0.0f; // 最小值不添加缓冲区
+    config.maxBuffer = 0.05f; // 最大值添加5%缓冲区
+    config.shrinkStepBase = 0.02f; // 使用更小的收缩步长
+    config.shrinkStepMax = 0.1f; // 限制最大收缩步长
+    config.minRangeChangeRatio = 0.1f; // 提高范围变化阈值，减少频繁更新
 
-    m_dynamicRange = DynamicRange(-75.0f, -30.0f, config);
+    m_dynamicRange = DynamicRange(0.0f, 0.0f, config);
 
     // 设置各轴的刻度范围
-    auto [displayMin, displayMax] = m_dynamicRange.getDisplayRange();
-    setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 85);
-    setTicksRange('y', displayMin, displayMax, calculateTickStep(displayMax - displayMin));
+    setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
+    setTicksRange('y', 0.0f, 1.0f, 0.2f);
     setAxisVisible('z', false);
   }
 
@@ -39,8 +43,8 @@ namespace ProGraphics {
     doneCurrent();
   }
 
-  void PRPSChart::initializeGLObjects() { 
-    Coordinate3D::initializeGLObjects(); 
+  void PRPSChart::initializeGLObjects() {
+    Coordinate3D::initializeGLObjects();
   }
 
   void PRPSChart::paintGLObjects() {
@@ -79,13 +83,12 @@ namespace ProGraphics {
       return;
     }
 
+
     if (m_lineGroups.size() >= PRPSConstants::MAX_LINE_GROUPS) {
       // 当达到最大数量时，移除最老的一组数据
       m_lineGroups.erase(m_lineGroups.begin());
     }
 
-    // 记录旧的显示范围
-    auto [oldDisplayMin, oldDisplayMax] = m_dynamicRange.getDisplayRange();
 
     // 更新动态量程
     bool rangeChanged = false;
@@ -96,9 +99,10 @@ namespace ProGraphics {
     // 如果范围改变，更新坐标轴并重新计算所有线组
     if (rangeChanged) {
       auto [newDisplayMin, newDisplayMax] = m_dynamicRange.getDisplayRange();
-
+      qDebug() << "动态范围:" << newDisplayMin << "到" << newDisplayMax;
       // 更新坐标轴刻度
       float step = calculateNiceTickStep(newDisplayMax - newDisplayMin);
+      qDebug() << "计算步长:" << step;
       setTicksRange('y', newDisplayMin, newDisplayMax, step);
 
       // 重新计算所有现有的线组
@@ -206,12 +210,29 @@ namespace ProGraphics {
     doneCurrent();
   }
 
+  void PRPSChart::setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config) {
+    // 保存当前显示范围
+    auto [oldMin, oldMax] = m_dynamicRange.getDisplayRange();
+
+    // 更新配置
+    m_dynamicRange = DynamicRange(oldMin, oldMax, config);
+
+    // 更新坐标轴刻度
+    auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
+    setTicksRange('y', newMin, newMax, calculateNiceTickStep(newMax - newMin, config.tickCount));
+
+    // 重新计算所有线组
+    recalculateLineGroups();
+    update();
+  }
+
   void PRPSChart::setAmplitudeRange(float min, float max) {
     // 设置固定范围
     m_dynamicRange.setDisplayRange(min, max);
 
     // 更新坐标轴
-    setTicksRange('y', min, max, calculateTickStep(max - min));
+    float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().tickCount);
+    setTicksRange('y', min, max, step);
 
     // 重新计算所有线组
     recalculateLineGroups();
