@@ -44,14 +44,37 @@ namespace ProGraphics {
     const auto &range = config.range;
     int tickCount = static_cast<int>((range.max - range.min) / range.step);
 
-    for (int i = 0; i <= tickCount; ++i) {
-      float value = range.min + i * range.step;
-      QVector3D position = calculateTickPosition(axis, value, config.offset);
-      QString text = config.formatter(value);
+    // 确定小数位数
+    int decimalPlaces = 0;
+    float step = range.step;
+    if (step < 1.0f) {
+        // 计算步长需要的小数位数
+        decimalPlaces = std::max(1, static_cast<int>(-std::floor(std::log10(step))) + 1);
+    }
 
-      auto *label = m_textRenderer->addLabel(text, position, config.style);
-      m_textRenderer->setAlignment(label, config.alignment);
-      m_tickLabels.push_back(label);
+    for (int i = 0; i <= tickCount; ++i) {
+        float value = range.min + i * range.step;
+        QVector3D position = calculateTickPosition(axis, value, config.offset);
+        
+        // 使用自定义格式化函数或根据步长自动确定小数位数
+        QString text;
+        if (config.formatter) {
+            text = config.formatter(value);
+        } else {
+            // 根据步长自动确定小数位数
+            text = QString::number(value, 'f', decimalPlaces);
+            // 移除尾随的0
+            while (text.contains('.') && text.endsWith('0')) {
+                text.chop(1);
+            }
+            if (text.endsWith('.')) {
+                text.chop(1);
+            }
+        }
+
+        auto *label = m_textRenderer->addLabel(text, position, config.style);
+        m_textRenderer->setAlignment(label, config.alignment);
+        m_tickLabels.push_back(label);
     }
   }
 

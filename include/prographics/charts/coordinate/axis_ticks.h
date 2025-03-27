@@ -35,7 +35,7 @@ namespace ProGraphics {
        * @return 格式化后的文本
        */
       std::function<QString(float)> formatter = [](float value) {
-        return QString::number(value, 'f', 1);
+        return QString::number(value, 'f', 2);
       };
 
       /**

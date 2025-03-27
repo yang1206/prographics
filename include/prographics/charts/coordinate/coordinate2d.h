@@ -421,6 +421,6 @@ namespace ProGraphics {
     static const char *vertexShaderSource; ///< 顶点着色器源码
     static const char *fragmentShaderSource; ///< 片段着色器源码
 
-    QColor m_backgroundcolor{46, 59, 84};; ///< 背景颜色
+    QColor m_backgroundcolor{46, 59, 84}; ///< 背景颜色
   };
 } // namespace ProGraphics
