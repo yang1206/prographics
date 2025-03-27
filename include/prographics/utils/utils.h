@@ -224,32 +224,48 @@ namespace ProGraphics {
         // 统一的范围参数配置结构体
         struct DynamicRangeConfig {
             // 范围更新相关
-            float expandThreshold = 0.2f; // 数据超出范围多少比例后扩展
-            float shrinkThreshold = 0.3f; // 数据使用范围少于多少比例时收缩
-            float expandBufferRatio = 0.10f; // 扩展缓冲区比例
-            float shrinkBufferRatio = 0.1f; // 收缩缓冲区比例
-            float minRangeChangeRatio = 0.08f; // 最小范围变化比例，小于此比例不更新
+            float expandThreshold; // 数据超出范围多少比例后扩展
+            float shrinkThreshold; // 数据使用范围少于多少比例时收缩
+            float expandBufferRatio; // 扩展缓冲区比例
+            float shrinkBufferRatio; // 收缩缓冲区比例
+            float minRangeChangeRatio; // 最小范围变化比例，小于此比例不更新
 
             // 美观刻度相关
-            int tickCount = 6; // 目标刻度数
+            int tickCount; // 目标刻度数
 
             // 稳定性检测相关
-            int stabilityCheckSize = 30; // 稳定性检测样本数
-            float stabilityThreshold = 0.2f; // 稳定性阈值
-            int stableCounterThreshold = 5; // 稳定计数器阈值
+            int stabilityCheckSize; // 稳定性检测样本数
+            float stabilityThreshold; // 稳定性阈值
+            int stableCounterThreshold; // 稳定计数器阈值
 
             // 特殊范围处理
-            float smallRangeThreshold = 5.0f; // 小范围阈值
-            float smallRangeBuffer = 0.05f; // 小范围缓冲区比例
-            float minBuffer = 0.0f; // 最小值缓冲区比例
-            float maxBuffer = 0.01f; // 最大值缓冲区比例
+            float smallRangeThreshold; // 小范围阈值
+            float smallRangeBuffer; // 小范围缓冲区比例
+            float minBuffer; // 最小值缓冲区比例
+            float maxBuffer; // 最大值缓冲区比例
 
             // 收缩范围相关
-            float shrinkStepBase = 0.05f; // 基础收缩步长
-            float shrinkStepMax = 0.2f; // 最大收缩步长
+            float shrinkStepBase; // 基础收缩步长
+            float shrinkStepMax; // 最大收缩步长
 
             // 范围变化检测
             float rangeChangeEpsilon = 0.01f; // 浮点数比较容差
+            DynamicRangeConfig(): expandThreshold(0.1f),
+                                  shrinkThreshold(0.4f),
+                                  expandBufferRatio(0.10f),
+                                  shrinkBufferRatio(0.1f),
+                                  minRangeChangeRatio(0.08f),
+                                  tickCount(6),
+                                  stabilityCheckSize(30),
+                                  stabilityThreshold(0.2f),
+                                  smallRangeThreshold(5.0f),
+                                  smallRangeBuffer(0.05f),
+                                  minBuffer(0.0f),
+                                  maxBuffer(0.01f),
+                                  shrinkStepBase(0.05f),
+                                  shrinkStepMax(0.2f),
+                                  rangeChangeEpsilon(0.01f) {
+            }
         };
 
         // 构造函数
@@ -363,8 +379,8 @@ namespace ProGraphics {
                     m_displayMin = newDisplayMin;
                     m_displayMax = newDisplayMax;
 
-                    qDebug() << "动态范围:" << m_displayMin << "到" << m_displayMax;
-                    qDebug() << "计算步长:" << calculateNiceTickStep(m_displayMax - m_displayMin, m_config.tickCount);
+                    // qDebug() << "动态范围:" << m_displayMin << "到" << m_displayMax;
+                    // qDebug() << "计算步长:" << calculateNiceTickStep(m_displayMax - m_displayMin, m_config.tickCount);
 
                     return true;
                 }

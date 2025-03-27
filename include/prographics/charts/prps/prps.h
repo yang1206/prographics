@@ -1,7 +1,9 @@
 ﻿#pragma once
 
 #include "prographics/charts/coordinate/coordinate3d.h"
-#include <QTimer>
+#include <QThread>
+#include <QMutex>
+#include <QWaitCondition>
 
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
@@ -26,6 +28,34 @@ namespace ProGraphics {
     };
 
 
+    class UpdateThread : public QThread {
+        Q_OBJECT
+
+    public:
+        explicit UpdateThread(QObject *parent = nullptr);
+
+        ~UpdateThread() override;
+
+        void stop();
+
+        void setPaused(bool paused);
+
+        void setUpdateInterval(int intervalMs);
+
+    signals:
+        void updateAnimation(); // 触发动画更新
+
+    protected:
+        void run() override;
+
+    private:
+        QMutex m_mutex;
+        QWaitCondition m_condition;
+        bool m_abort{false};
+        bool m_paused{false};
+        int m_updateInterval{20}; // 默认约60fps
+    };
+
     class PRPSChart : public Coordinate3D {
         Q_OBJECT
 
@@ -40,7 +70,6 @@ namespace ProGraphics {
         // 配置接口
         void setThreshold(float threshold) { m_threshold = threshold; }
 
-
         void setPhaseRange(float min, float max);
 
         void setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config);
@@ -50,6 +79,10 @@ namespace ProGraphics {
         void setDynamicRangeEnabled(bool enabled);
 
         bool isDynamicRangeEnabled() const;
+
+        void setUpdateInterval(int intervalMs) {
+            m_updateThread.setUpdateInterval(intervalMs);
+        };
 
         void resetData() {
             m_currentCycles.clear();
@@ -61,6 +94,9 @@ namespace ProGraphics {
         void initializeGLObjects() override;
 
         void paintGLObjects() override;
+
+    private slots:
+        void updatePRPSAnimation(); // 更新动画状态
 
     private:
         struct LineGroup {
@@ -77,7 +113,7 @@ namespace ProGraphics {
 
         // 线组管理
         std::vector<std::unique_ptr<LineGroup> > m_lineGroups;
-        QTimer m_prpsAnimationTimer;
+        UpdateThread m_updateThread;
         float m_prpsAnimationSpeed = 0.1f;
 
         // 动态量程管理
@@ -90,8 +126,6 @@ namespace ProGraphics {
 
         // 处理方法
         void processCurrentCycles();
-
-        void updatePRPSAnimation();
 
         void cleanupInactiveGroups();
 

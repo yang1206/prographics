@@ -1,6 +1,5 @@
 ﻿#pragma once
 
-#include <QTimer>
 #include "prographics/charts/coordinate/coordinate2d.h"
 #include "prographics/utils/utils.h"
 

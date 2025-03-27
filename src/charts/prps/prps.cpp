@@ -3,12 +3,58 @@
 #include "prographics/utils/utils.h"
 
 namespace ProGraphics {
-  PRPSChart::PRPSChart(QWidget *parent) : Coordinate3D(parent) {
-    // 设置动画定时器
-    connect(&m_prpsAnimationTimer, &QTimer::timeout, this,
-            &PRPSChart::updatePRPSAnimation);
-    m_prpsAnimationTimer.setInterval(16); // 约60fps
-    m_prpsAnimationTimer.start();
+  // UpdateThread 实现
+  UpdateThread::UpdateThread(QObject* parent) : QThread(parent) {
+  }
+
+  UpdateThread::~UpdateThread() {
+    stop();
+  }
+
+  void UpdateThread::stop() {
+    QMutexLocker locker(&m_mutex);
+    m_abort = true;
+    m_condition.wakeAll();
+    locker.unlock();
+    wait();
+  }
+
+  void UpdateThread::setPaused(bool paused) {
+    QMutexLocker locker(&m_mutex);
+    m_paused = paused;
+    if (!paused) {
+      m_condition.wakeAll();
+    }
+  }
+
+  void UpdateThread::setUpdateInterval(int intervalMs) {
+    QMutexLocker locker(&m_mutex);
+    m_updateInterval = intervalMs;
+  }
+
+  void UpdateThread::run() {
+    while (true) {
+      {
+        QMutexLocker locker(&m_mutex);
+        if (m_abort) {
+          return;
+        }
+        if (m_paused) {
+          m_condition.wait(&m_mutex);
+          continue;
+        }
+      }
+
+      // 发送更新信号
+      emit updateAnimation();
+
+      // 等待指定的时间间隔
+      msleep(m_updateInterval);
+    }
+  }
+
+  // PRPSChart 实现
+  PRPSChart::PRPSChart(QWidget *parent) : Coordinate3D(parent), m_updateThread(this) {
     setSize(PRPSConstants::GL_AXIS_LENGTH);
 
     // 设置各轴的名称和单位
@@ -35,9 +81,19 @@ namespace ProGraphics {
     setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
     setTicksRange('y', 0.0f, 1.0f, 0.2f);
     setAxisVisible('z', false);
+    
+    // 连接更新线程的信号到动画更新槽
+    connect(&m_updateThread, &UpdateThread::updateAnimation, this, &PRPSChart::updatePRPSAnimation, Qt::QueuedConnection);
+    
+    // 启动更新线程
+    m_updateThread.start();
   }
 
   PRPSChart::~PRPSChart() {
+    // 停止更新线程
+    m_updateThread.stop();
+    
+    // 清理资源
     makeCurrent();
     m_lineGroups.clear();
     doneCurrent();
@@ -83,12 +139,10 @@ namespace ProGraphics {
       return;
     }
 
-
     if (m_lineGroups.size() >= PRPSConstants::MAX_LINE_GROUPS) {
       // 当达到最大数量时，移除最老的一组数据
       m_lineGroups.erase(m_lineGroups.begin());
     }
-
 
     // 更新动态量程
     bool rangeChanged = false;
@@ -99,10 +153,10 @@ namespace ProGraphics {
     // 如果范围改变，更新坐标轴并重新计算所有线组
     if (rangeChanged) {
       auto [newDisplayMin, newDisplayMax] = m_dynamicRange.getDisplayRange();
-      qDebug() << "动态范围:" << newDisplayMin << "到" << newDisplayMax;
+      // qDebug() << "动态范围:" << newDisplayMin << "到" << newDisplayMax;
       // 更新坐标轴刻度
       float step = calculateNiceTickStep(newDisplayMax - newDisplayMin);
-      qDebug() << "计算步长:" << step;
+      // qDebug() << "计算步长:" << step;
       setTicksRange('y', newDisplayMin, newDisplayMax, step);
 
       // 重新计算所有现有的线组
