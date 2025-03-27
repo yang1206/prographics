@@ -322,9 +322,9 @@ namespace ProGraphics {
                 m_displayMax = initialMax;
                 m_rangeInitialized = true;
 
-                qDebug() << "初始化范围:" << newMin << "到" << newMax;
-                qDebug() << "缓冲后范围:" << minWithBuffer << "到" << maxWithBuffer;
-                qDebug() << "美观范围:" << m_displayMin << "到" << m_displayMax;
+                // qDebug() << "初始化范围:" << newMin << "到" << newMax;
+                // qDebug() << "缓冲后范围:" << minWithBuffer << "到" << maxWithBuffer;
+                // qDebug() << "美观范围:" << m_displayMin << "到" << m_displayMax;
 
                 return true;
             }
