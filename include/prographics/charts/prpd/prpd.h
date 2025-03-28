@@ -41,6 +41,9 @@ namespace ProGraphics {
             m_cycleBuffer.binIndices.clear();
             m_cycleBuffer.currentIndex = 0;
             m_cycleBuffer.isFull = false;
+            m_renderBatches.clear();
+            m_dynamicRange.setDisplayRange(m_amplitudeMin, m_amplitudeMax);
+            rebuildFrequencyTable();
             update();
         };
 
