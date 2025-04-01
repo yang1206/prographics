@@ -247,6 +247,9 @@ namespace ProGraphics {
             // 收缩范围相关
             float shrinkStepBase; // 基础收缩步长
             float shrinkStepMax; // 最大收缩步长
+            float smallDataThreshold; // 小数据阈值，数据范围小于此值时使用固定量程
+            float smallDataFixedRange; // 小数据固定量程大小
+            bool useFixedRangeForSmallData; // 是否对小数据使用固定量程
 
             // 范围变化检测
             float rangeChangeEpsilon = 0.01f; // 浮点数比较容差
@@ -264,7 +267,10 @@ namespace ProGraphics {
                                   maxBuffer(0.01f),
                                   shrinkStepBase(0.05f),
                                   shrinkStepMax(0.2f),
-                                  rangeChangeEpsilon(0.01f) {
+                                  rangeChangeEpsilon(0.01f),
+                                  smallDataThreshold(1.0f),
+                                  smallDataFixedRange(5.0f),
+                                  useFixedRangeForSmallData(true) {
             }
         };
 
@@ -288,6 +294,7 @@ namespace ProGraphics {
         void setConfig(const DynamicRangeConfig &config) {
             m_config = config;
         }
+
 
         // 更新范围，返回是否需要重建绘图数据
         bool updateRange(const std::vector<float> &newData) {
@@ -316,10 +323,33 @@ namespace ProGraphics {
                 float minWithBuffer = (newMin >= 0) ? std::max(0.0f, newMin - buffer) : newMin - buffer;
                 float maxWithBuffer = newMax + buffer;
 
-                auto [initialMin, initialMax] = calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.tickCount);
+                // 先检查是否为小数据情况
+                if (m_config.useFixedRangeForSmallData && dataRange < m_config.smallDataThreshold) {
+                    qDebug() << "初始化检测到小数据:" << newMin << "到" << newMax;
+                    // 计算范围中心
+                    float center = (newMin + newMax) / 2.0f;
+                    // 计算固定量程的一半
+                    float halfRange = m_config.smallDataFixedRange / 2.0f;
+                    // 如果全部是正数据，确保下限不小于0
+                    if (newMin >= 0 && center - halfRange < 0) {
+                        m_displayMin = 0.0f;
+                        m_displayMax = m_config.smallDataFixedRange;
+                    } else {
+                        m_displayMin = center - halfRange;
+                        m_displayMax = center + halfRange;
+                    }
 
-                m_displayMin = initialMin;
-                m_displayMax = initialMax;
+                    // 计算美观范围
+                    auto [niceMin, niceMax] = calculateNiceRange(m_displayMin, m_displayMax, m_config.tickCount);
+                    m_displayMin = niceMin;
+                    m_displayMax = niceMax;
+                } else {
+                    // 正常计算美观范围
+                    auto [initialMin, initialMax] =
+                            calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.tickCount);
+                    m_displayMin = initialMin;
+                    m_displayMax = initialMax;
+                }
                 m_rangeInitialized = true;
 
                 // qDebug() << "初始化范围:" << newMin << "到" << newMax;
@@ -473,13 +503,26 @@ namespace ProGraphics {
             return false;
         }
 
+
         // 优化的显示范围计算
         std::pair<float, float> calculateDisplayRange(bool forceUpdate) {
+            // 先检查小数据情况 - 在任何其他处理之前
+            float dataRange = m_dataMax - m_dataMin;
+            if (m_config.useFixedRangeForSmallData && dataRange < m_config.smallDataThreshold) {
+                // 计算范围中心
+                float center = (m_dataMin + m_dataMax) / 2.0f;
+                // 计算固定量程的一半
+                float halfRange = m_config.smallDataFixedRange / 2.0f;
+                // 如果全部是正数据，确保下限不小于0
+                if (m_dataMin >= 0 && center - halfRange < 0) {
+                    return calculateNiceRange(0.0f, m_config.smallDataFixedRange, m_config.tickCount);
+                }
+                // 返回以中心为基准的固定量程
+                return calculateNiceRange(center - halfRange, center + halfRange, m_config.tickCount);
+            }
+
             // 当前显示范围
             float currentRange = m_displayMax - m_displayMin;
-
-            // 数据范围
-            float dataRange = m_dataMax - m_dataMin;
 
             // 检查数据是否超出当前显示范围
             bool dataOutOfRange = m_dataMin < m_displayMin || m_dataMax > m_displayMax;
@@ -508,6 +551,7 @@ namespace ProGraphics {
                     // 不要让最小值太远离数据最小值
                     expandedMin = m_dataMin - dataRange * 0.05f;
                 }
+
                 // 计算美观范围
                 return calculateNiceRange(expandedMin, expandedMax, m_config.tickCount);
             } else {
@@ -536,7 +580,6 @@ namespace ProGraphics {
                     // 计算新范围
                     float newMin = m_displayMin + (targetMin - m_displayMin) * shrinkStep;
                     float newMax = m_displayMax + (targetMax - m_displayMax) * shrinkStep;
-
                     // 计算美观范围
                     return calculateNiceRange(newMin, newMax, m_config.tickCount);
                 }
