@@ -11,16 +11,16 @@ namespace ProGraphics {
 
         // 初始化动态量程
         DynamicRange::DynamicRangeConfig config;
-        config.expandThreshold = 0.1f; // 降低扩展阈值，更积极扩展
-        config.shrinkThreshold = 0.4f; // 提高收缩阈值，减少收缩频率
-        config.stabilityCheckSize = 20; // 减少稳定性检查样本数
-        config.stableCounterThreshold = 3; // 减少稳定计数器阈值
-        config.tickCount = 5; // 设置期望的刻度数量为5
-        config.minBuffer = 0.0f; // 最小值不添加缓冲区
-        config.maxBuffer = 0.05f; // 最大值添加5%缓冲区
-        config.shrinkStepBase = 0.02f; // 使用更小的收缩步长
-        config.shrinkStepMax = 0.1f; // 限制最大收缩步长
-        config.minRangeChangeRatio = 0.1f; // 提高范围变化阈值，减少频繁更新
+        config.dataExceedThreshold = 0.1f; // 降低扩展阈值，更积极扩展
+        config.dataFluctuationThreshold = 0.4f; // 提高收缩阈值，减少收缩频率
+        config.stabilityHistorySize = 20; // 减少稳定性检查样本数
+        config.stableStateCountThreshold = 3; // 减少稳定计数器阈值
+        config.targetTickCount = 5; // 设置期望的刻度数量为5
+        config.minValuePaddingRatio = 0.0f; // 最小值不添加缓冲区
+        config.maxValuePaddingRatio = 0.05f; // 最大值添加5%缓冲区
+        config.normalShrinkSpeed = 0.02f; // 使用更小的收缩步长
+        config.maxShrinkSpeed = 0.1f; // 限制最大收缩步长
+
 
         m_dynamicRange = DynamicRange(0.0f, 0.0f, config);
 
@@ -239,7 +239,7 @@ namespace ProGraphics {
         m_dynamicRange.setDisplayRange(min, max);
 
         // 更新坐标轴
-        float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().tickCount);
+        float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
         setTicksRange('y', min, max, step);
 
         // 重建频次表
@@ -269,7 +269,7 @@ namespace ProGraphics {
 
         // 更新坐标轴刻度
         auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
-        setTicksRange('y', newMin, newMax, calculateNiceTickStep(newMax - newMin, config.tickCount));
+        setTicksRange('y', newMin, newMax, calculateNiceTickStep(newMax - newMin, config.targetTickCount));
 
         // 重建频次表
         rebuildFrequencyTable();

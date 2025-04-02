@@ -40,7 +40,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(800, 600);
     // 设置数据生成定时器
     connect(&m_dataTimer, &QTimer::timeout, this, &MainWindow::generateTestData);
-    m_dataTimer.setInterval(20); // 每100ms生成一次数据
+    m_dataTimer.setInterval(20);
     m_dataTimer.start();
 }
 
@@ -121,15 +121,17 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         float min;
         float max;
     } ranges[] = {
+                // {-70.0f, 0.0f},
                 // {-2000.0f, 1000.0f}, // 范围1: 负值到正值
                 // {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
                 // {-1800, -1200}, // 范围4: 全正值较小范围
-                // {0.0, 200}, // 范围5: 全正值较大范围
+                // {0.0, 2000}, // 范围5: 全正值较大范围
                 // {2000.0f, 3000.0f}, // 范围3: 全正值较小范围
-                // {0.0f, 70.0f},
-                {0.0f, 0.15f},
+                // // {0.0f, 70.0f},
+                // {0.0f, 0.15f},
                 {1.0f, 1.2f},
-                {100.0f, 200.0f}
+                // {0.0, 2000},
+                {500, 3000}
             };
 
     // 跟踪时间和当前范围
@@ -142,7 +144,7 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         initialized = true;
     }
 
-    const int rangeDurationMs = 10000;
+    const int rangeDurationMs = 150000;
     int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
     int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 

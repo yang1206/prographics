@@ -147,7 +147,7 @@ namespace ProGraphics {
     }
 
     // 优化的范围计算函数
-    inline std::pair<float, float> calculateNiceRange(float min, float max, int tickCount = 6) {
+    inline std::pair<float, float> calculateNiceRange(float min, float max, int targetTickCount = 6) {
         // 处理特殊情况
         if (min > max) {
             std::swap(min, max);
@@ -162,7 +162,7 @@ namespace ProGraphics {
         }
 
         // 计算刻度步长
-        float niceStep = calculateNiceTickStep(range, tickCount);
+        float niceStep = calculateNiceTickStep(range, targetTickCount);
 
         // 计算美观的最小值（向下取整到最接近的步长倍数）
         float niceMin = std::floor(min / niceStep) * niceStep;
@@ -187,16 +187,16 @@ namespace ProGraphics {
         // 确保范围包含足够的刻度
         float niceMax = niceMin + std::ceil((max - niceMin) / niceStep) * niceStep;
 
-        // 确保至少有tickCount个刻度
+        // 确保至少有targetTickCount个刻度
         int steps = std::round((niceMax - niceMin) / niceStep);
-        if (steps < tickCount) {
+        if (steps < targetTickCount) {
             // 对于小范围数据，尝试减小步长而不是扩大范围
-            if (range < 10.0f && steps >= tickCount - 1) {
+            if (range < 10.0f && steps >= targetTickCount - 1) {
                 // 如果只差一个刻度，尝试减小步长
                 float smallerStep = niceStep * 0.5f;
                 if (smallerStep > 0) {
                     steps = std::round((niceMax - niceMin) / smallerStep);
-                    if (steps >= tickCount) {
+                    if (steps >= targetTickCount) {
                         return {niceMin, niceMax}; // 使用更小的步长
                     }
                 }
@@ -207,12 +207,12 @@ namespace ProGraphics {
                 if (niceMin == 0.0f && niceMax > max * 1.5f) {
                     // 找到一个更合适的最大值
                     float betterMax = std::ceil(max * 1.2f / niceStep) * niceStep;
-                    if (betterMax >= max && (betterMax - niceMin) / niceStep >= tickCount - 1) {
+                    if (betterMax >= max && (betterMax - niceMin) / niceStep >= targetTickCount - 1) {
                         niceMax = betterMax;
                     }
                 }
             }
-            niceMax = niceMin + tickCount * niceStep;
+            niceMax = niceMin + targetTickCount * niceStep;
         }
 
         return {niceMin, niceMax};
@@ -223,54 +223,81 @@ namespace ProGraphics {
     public:
         // 统一的范围参数配置结构体
         struct DynamicRangeConfig {
-            // 范围更新相关
-            float expandThreshold; // 数据超出范围多少比例后扩展
-            float shrinkThreshold; // 数据使用范围少于多少比例时收缩
-            float expandBufferRatio; // 扩展缓冲区比例
-            float shrinkBufferRatio; // 收缩缓冲区比例
-            float minRangeChangeRatio; // 最小范围变化比例，小于此比例不更新
+            //==================== 范围扩展与收缩控制 ====================
+            float dataExceedThreshold; // 数据超出当前范围多少比例时立即扩展范围 (0.1表示超出10%)
+            float dataUnderUtilizationThreshold; // 数据仅使用显示范围的多少比例时开始收缩 (0.3表示使用不足70%时收缩)
+            float expandPaddingRatio; // 扩展范围时额外添加的缓冲区比例 (0.1表示添加10%的缓冲区)
+            float shrinkPaddingRatio; // 收缩范围时保留的缓冲区比例 (0.1表示保留10%的缓冲区)
+            float minRangeUpdateThreshold; // 范围变化超过此比例才更新显示 (0.08表示变化超过8%才更新)
 
-            // 美观刻度相关
-            int tickCount; // 目标刻度数
+            //==================== 刻度与显示控制 ====================
+            int targetTickCount; // 坐标轴期望的刻度数量 (通常为5-7)
 
-            // 稳定性检测相关
-            int stabilityCheckSize; // 稳定性检测样本数
-            float stabilityThreshold; // 稳定性阈值
-            int stableCounterThreshold; // 稳定计数器阈值
+            //==================== 稳定性检测与处理 ====================
+            int stabilityHistorySize; // 稳定性检测的历史数据点数量 (20表示跟踪最近20次更新)
+            float dataFluctuationThreshold; // 数据波动低于此比例时判定为稳定 (0.2表示波动不超过当前范围的20%)
+            int stableStateCountThreshold; // 连续检测到稳定状态多少次后强制更新范围 (3表示连续3次稳定后更新)
 
-            // 特殊范围处理
-            float smallRangeThreshold; // 小范围阈值
-            float smallRangeBuffer; // 小范围缓冲区比例
-            float minBuffer; // 最小值缓冲区比例
-            float maxBuffer; // 最大值缓冲区比例
+            //==================== 特殊情况处理 ====================
+            float smallRangeThreshold; // 小范围数据阈值 (数据范围小于5.0时使用特殊处理)
+            float minValuePaddingRatio; // 最小值的缓冲区比例 (0.0表示不为最小值添加额外缓冲区)
+            float maxValuePaddingRatio; // 最大值的缓冲区比例 (0.01表示为最大值添加1%缓冲区)
 
-            // 收缩范围相关
-            float shrinkStepBase; // 基础收缩步长
-            float shrinkStepMax; // 最大收缩步长
-            float smallDataThreshold; // 小数据阈值，数据范围小于此值时使用固定量程
-            float smallDataFixedRange; // 小数据固定量程大小
-            bool useFixedRangeForSmallData; // 是否对小数据使用固定量程
+            //==================== 收缩速度控制 ====================
+            float normalShrinkSpeed; // 普通情况下的收缩速度 (0.05表示每次向目标收缩5%)
+            float maxShrinkSpeed; // 最大允许的收缩速度 (0.2表示每次最多收缩20%)
 
-            // 范围变化检测
-            float rangeChangeEpsilon = 0.01f; // 浮点数比较容差
-            DynamicRangeConfig(): expandThreshold(0.1f),
-                                  shrinkThreshold(0.4f),
-                                  expandBufferRatio(0.10f),
-                                  shrinkBufferRatio(0.1f),
-                                  minRangeChangeRatio(0.08f),
-                                  tickCount(6),
-                                  stabilityCheckSize(30),
-                                  stabilityThreshold(0.2f),
-                                  smallRangeThreshold(5.0f),
-                                  smallRangeBuffer(0.05f),
-                                  minBuffer(0.0f),
-                                  maxBuffer(0.01f),
-                                  shrinkStepBase(0.05f),
-                                  shrinkStepMax(0.2f),
-                                  rangeChangeEpsilon(0.01f),
-                                  smallDataThreshold(1.0f),
-                                  smallDataFixedRange(5.0f),
-                                  useFixedRangeForSmallData(true) {
+            //==================== 小数据范围特殊处理 ====================
+            float tinyDataRangeThreshold; // 微小数据范围阈值 (数据范围小于1.0时使用固定量程)
+            float tinyDataFixedRange; // 微小数据使用的固定量程大小 (5.0表示使用固定量程5.0)
+            bool enableTinyDataFixedRange; // 是否启用微小数据固定量程 (true表示启用)
+
+            //==================== 更新频率控制 ====================
+            int dataUpdateThrottleCount; // 数据更新多少次才进行动态量程处理 (10表示每10次数据更新处理一次)
+            int periodicRangeCheckCount; // 多少次更新后强制检查范围 (50表示每50次更新强制检查一次)
+
+            //==================== 全正值数据处理 ====================
+            bool forceZeroMinForPositiveOnly; // 全正值数据时是否强制从0开始 (true表示强制从0开始)
+            float positiveOnlyShrinkAcceleration; // 全正值数据时的收缩加速系数 (0.3表示比普通收缩快3倍)
+            int positiveOnlyDetectionCount; // 需要连续检测到多少次全正值才启用特殊处理 (5表示连续5次)
+
+
+            DynamicRangeConfig(): dataExceedThreshold(0.1f), // 数据超出范围10%时扩展
+                                  dataUnderUtilizationThreshold(0.3f), // 数据使用不足70%时收缩
+                                  expandPaddingRatio(0.10f), // 扩展时添加10%缓冲区
+                                  shrinkPaddingRatio(0.1f), // 收缩时保留10%缓冲区
+                                  minRangeUpdateThreshold(0.08f), // 范围变化超过8%才更新显示
+                                  // 刻度与显示控制
+                                  targetTickCount(6), // 期望显示6个刻度
+
+                                  // 稳定性检测与处理
+                                  stabilityHistorySize(20), // 跟踪最近20个数据点
+                                  dataFluctuationThreshold(0.2f), // 波动不超过20%判定为稳定
+                                  stableStateCountThreshold(3), // 连续3次稳定后强制更新
+
+                                  // 特殊情况处理
+                                  smallRangeThreshold(5.0f), // 范围小于5.0使用特殊处理
+                                  minValuePaddingRatio(0.0f), // 最小值不添加缓冲区
+                                  maxValuePaddingRatio(0.01f), // 最大值添加1%缓冲区
+
+                                  // 收缩速度控制
+                                  normalShrinkSpeed(0.05f), // 普通收缩速度5%
+                                  maxShrinkSpeed(0.2f), // 最大收缩速度20%
+
+                                  // 小数据范围特殊处理
+                                  tinyDataRangeThreshold(1.0f), // 范围小于1.0使用固定量程
+                                  tinyDataFixedRange(5.0f), // 微小数据使用固定量程5.0
+                                  enableTinyDataFixedRange(false), // 默认不启用微小数据固定量程
+
+                                  // 更新频率控制
+                                  dataUpdateThrottleCount(10), // 每10次数据更新处理一次
+                                  periodicRangeCheckCount(50), // 每50次更新强制检查一次
+
+                                  // 全正值数据处理
+                                  forceZeroMinForPositiveOnly(false), // 默认不强制全正值数据从0开始
+                                  positiveOnlyShrinkAcceleration(0.1f), // 全正值数据收缩加速10%
+                                  positiveOnlyDetectionCount(5) // 连续5次检测到全正值才启用特殊处理
+            {
             }
         };
 
@@ -310,6 +337,26 @@ namespace ProGraphics {
             float newMin = *minIt;
             float newMax = *maxIt;
 
+            // 检查数据是否全为正值
+            bool currentDataAllPositive = true;
+            for (const auto &value: newData) {
+                if (value < 0) {
+                    currentDataAllPositive = false;
+                    break;
+                }
+            }
+
+            // 跟踪连续的全正值数据
+            if (currentDataAllPositive) {
+                m_consecutivePositiveDataCount++;
+                if (m_consecutivePositiveDataCount >= m_config.positiveOnlyShrinkAcceleration) {
+                    m_allPositiveData = true;
+                }
+            } else {
+                m_consecutivePositiveDataCount = 0;
+                m_allPositiveData = false;
+            }
+
             // 首次数据初始化范围
             if (!m_rangeInitialized) {
                 m_dataMin = newMin;
@@ -324,29 +371,29 @@ namespace ProGraphics {
                 float maxWithBuffer = newMax + buffer;
 
                 // 先检查是否为小数据情况
-                if (m_config.useFixedRangeForSmallData && dataRange < m_config.smallDataThreshold) {
+                if (m_config.enableTinyDataFixedRange && dataRange < m_config.tinyDataRangeThreshold) {
                     qDebug() << "初始化检测到小数据:" << newMin << "到" << newMax;
                     // 计算范围中心
                     float center = (newMin + newMax) / 2.0f;
                     // 计算固定量程的一半
-                    float halfRange = m_config.smallDataFixedRange / 2.0f;
+                    float halfRange = m_config.tinyDataFixedRange / 2.0f;
                     // 如果全部是正数据，确保下限不小于0
                     if (newMin >= 0 && center - halfRange < 0) {
                         m_displayMin = 0.0f;
-                        m_displayMax = m_config.smallDataFixedRange;
+                        m_displayMax = m_config.tinyDataFixedRange;
                     } else {
                         m_displayMin = center - halfRange;
                         m_displayMax = center + halfRange;
                     }
 
                     // 计算美观范围
-                    auto [niceMin, niceMax] = calculateNiceRange(m_displayMin, m_displayMax, m_config.tickCount);
+                    auto [niceMin, niceMax] = calculateNiceRange(m_displayMin, m_displayMax, m_config.targetTickCount);
                     m_displayMin = niceMin;
                     m_displayMax = niceMax;
                 } else {
                     // 正常计算美观范围
                     auto [initialMin, initialMax] =
-                            calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.tickCount);
+                            calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.targetTickCount);
                     m_displayMin = initialMin;
                     m_displayMax = initialMax;
                 }
@@ -372,12 +419,11 @@ namespace ProGraphics {
 
             // 跟踪最近范围以检测稳定性
             m_recentRanges.push_back({newMin, newMax});
-            if (m_recentRanges.size() > m_config.stabilityCheckSize) {
+            if (m_recentRanges.size() > m_config.stabilityHistorySize) {
                 m_recentRanges.pop_front();
             }
 
-            // 减少更新频率
-            if (++m_updateCounter % 10 != 0 && !dataRangeChanged) {
+            if (++m_updateCounter % m_config.dataUpdateThrottleCount != 0 && !dataRangeChanged) {
                 return false;
             }
             m_updateCounter = 0;
@@ -389,7 +435,7 @@ namespace ProGraphics {
             bool dataOutOfRange = newMin < m_displayMin || newMax > m_displayMax;
 
             // 周期性范围检查或强制更新或数据超出范围
-            if (++m_resetCounter % 50 == 0 || forceUpdate || dataOutOfRange) {
+            if (++m_resetCounter % m_config.periodicRangeCheckCount == 0 || forceUpdate || dataOutOfRange) {
                 m_resetCounter = 0;
 
                 // 确保数据范围有效
@@ -410,7 +456,7 @@ namespace ProGraphics {
                     m_displayMax = newDisplayMax;
 
                     // qDebug() << "动态范围:" << m_displayMin << "到" << m_displayMax;
-                    // qDebug() << "计算步长:" << calculateNiceTickStep(m_displayMax - m_displayMin, m_config.tickCount);
+                    // qDebug() << "计算步长:" << calculateNiceTickStep(m_displayMax - m_displayMin, m_config.targetTickCount);
 
                     return true;
                 }
@@ -446,10 +492,11 @@ namespace ProGraphics {
             m_resetCounter = 0;
         }
 
-    private:
+    private
+    :
         // 检查数据稳定性，返回是否应该强制更新范围
         bool checkDataStability() {
-            if (m_recentRanges.size() < m_config.stabilityCheckSize) {
+            if (m_recentRanges.size() < m_config.stabilityHistorySize) {
                 return false;
             }
 
@@ -469,7 +516,7 @@ namespace ProGraphics {
             }
 
             // 如果数据波动很小，认为数据稳定
-            if (fluctuation < m_config.stabilityThreshold) {
+            if (fluctuation < m_config.dataFluctuationThreshold) {
                 if (!m_dataStable) {
                     // 首次检测到稳定
                     m_stableCounter = 1;
@@ -490,7 +537,10 @@ namespace ProGraphics {
             }
 
             // 如果数据持续稳定一段时间，强制更新显示范围
-            if (m_dataStable && m_stableCounter >= m_config.stableCounterThreshold) {
+            if (m_dataStable && m_stableCounter
+                >=
+                m_config.stableStateCountThreshold
+            ) {
                 // 使用稳定数据范围强制更新显示范围
                 m_dataMin = m_stableMin;
                 m_dataMax = m_stableMax;
@@ -508,17 +558,17 @@ namespace ProGraphics {
         std::pair<float, float> calculateDisplayRange(bool forceUpdate) {
             // 先检查小数据情况 - 在任何其他处理之前
             float dataRange = m_dataMax - m_dataMin;
-            if (m_config.useFixedRangeForSmallData && dataRange < m_config.smallDataThreshold) {
+            if (m_config.enableTinyDataFixedRange && dataRange < m_config.tinyDataRangeThreshold) {
                 // 计算范围中心
                 float center = (m_dataMin + m_dataMax) / 2.0f;
                 // 计算固定量程的一半
-                float halfRange = m_config.smallDataFixedRange / 2.0f;
+                float halfRange = m_config.tinyDataFixedRange / 2.0f;
                 // 如果全部是正数据，确保下限不小于0
                 if (m_dataMin >= 0 && center - halfRange < 0) {
-                    return calculateNiceRange(0.0f, m_config.smallDataFixedRange, m_config.tickCount);
+                    return calculateNiceRange(0.0f, m_config.tinyDataFixedRange, m_config.targetTickCount);
                 }
                 // 返回以中心为基准的固定量程
-                return calculateNiceRange(center - halfRange, center + halfRange, m_config.tickCount);
+                return calculateNiceRange(center - halfRange, center + halfRange, m_config.targetTickCount);
             }
 
             // 当前显示范围
@@ -533,19 +583,19 @@ namespace ProGraphics {
                 float expandedMax = m_dataMax;
 
                 // 对于小范围数据，使用更小的缓冲区
-                float bufferRatio = (dataRange < 10.0f) ? 0.05f : m_config.expandBufferRatio;
+                float bufferRatio = (dataRange < 10.0f) ? 0.05f : m_config.expandPaddingRatio;
 
                 // 添加缓冲区
                 float buffer = dataRange * bufferRatio;
 
                 // 对于正数范围，确保最小值不会因缓冲区变为负数
                 if (m_dataMin >= 0) {
-                    expandedMin = std::max(0.0f, m_dataMin - buffer * m_config.minBuffer);
+                    expandedMin = std::max(0.0f, m_dataMin - buffer * m_config.minValuePaddingRatio);
                 } else {
-                    expandedMin = m_dataMin - buffer * m_config.minBuffer;
+                    expandedMin = m_dataMin - buffer * m_config.minValuePaddingRatio;
                 }
 
-                expandedMax = m_dataMax + buffer * m_config.maxBuffer;
+                expandedMax = m_dataMax + buffer * m_config.maxValuePaddingRatio;
                 // 特殊处理：对于较大的正数范围，保持最小值接近数据最小值
                 if (m_dataMin > 1000.0f && m_dataMax > 1000.0f) {
                     // 不要让最小值太远离数据最小值
@@ -553,35 +603,54 @@ namespace ProGraphics {
                 }
 
                 // 计算美观范围
-                return calculateNiceRange(expandedMin, expandedMax, m_config.tickCount);
+                return calculateNiceRange(expandedMin, expandedMax, m_config.targetTickCount);
             } else {
                 // 检测是否应该收缩范围
                 float usageRatio = dataRange / currentRange;
 
-                if (usageRatio < (1.0f - m_config.shrinkThreshold)) {
-                    // 数据只使用了显示范围的一小部分，应该收缩
+                if (usageRatio < (1.0f - m_config.dataUnderUtilizationThreshold) ||
+                    (m_allPositiveData && m_displayMin < 0)) {
+                    // 注意这个新条件
 
                     // 对于小范围数据，使用更保守的收缩
-                    float shrinkStep = (dataRange < 10.0f) ? 0.02f : m_config.shrinkStepBase;
+                    float shrinkStep = (dataRange < 10.0f) ? 0.02f : m_config.normalShrinkSpeed;
+
+                    // 如果数据全为正值且当前显示范围包含负值，使用更积极的收缩步长
+                    if (m_allPositiveData && m_displayMin < 0) {
+                        shrinkStep = std::max(shrinkStep, m_config.positiveOnlyShrinkAcceleration);
+                        qDebug() << "检测到全正值数据，使用积极收缩步长:" << shrinkStep;
+                    }
 
                     // 目标范围
                     float targetMin = m_dataMin;
+
+                    // 当数据全为正值且配置启用了强制零最小值，强制目标最小值为0
+
+                    if (m_allPositiveData && m_config
+                        .
+                        forceZeroMinForPositiveOnly
+                    ) {
+                        targetMin = 0.0f;
+                        qDebug() << "检测到全正值数据，强制目标最小值为0";
+                    }
                     // 对于正数范围，确保最小值不会变为负数
-                    if (m_dataMin >= 0) {
+                    else if (m_dataMin >= 0) {
                         targetMin = std::max(0.0f, targetMin);
                     }
-                    // 特殊处理：对于较大的正数范围，保持最小值接近数据最小值
-                    if (m_dataMin > 1000.0f && m_dataMax > 1000.0f) {
-                        // 不要让最小值太远离数据最小值
-                        targetMin = m_dataMin - dataRange * 0.05f;
-                    }
-                    float targetMax = m_dataMax + dataRange * m_config.maxBuffer;
+
+                    float targetMax = m_dataMax + dataRange * m_config.maxValuePaddingRatio;
 
                     // 计算新范围
                     float newMin = m_displayMin + (targetMin - m_displayMin) * shrinkStep;
                     float newMax = m_displayMax + (targetMax - m_displayMax) * shrinkStep;
+
+                    // 对于全正值数据，如果计算出的新最小值仍然为负，直接调整为0
+                    if (m_allPositiveData && newMin < 0) {
+                        newMin = 0.0f;
+                    }
+
                     // 计算美观范围
-                    return calculateNiceRange(newMin, newMax, m_config.tickCount);
+                    return calculateNiceRange(newMin, newMax, m_config.targetTickCount);
                 }
             }
 
@@ -614,9 +683,9 @@ namespace ProGraphics {
             float maxChangeRatio = std::abs(newMax - oldMax) / oldRange;
 
             // 如果范围变化比例或最小值/最大值变化比例超过阈值，则认为范围发生了显著变化
-            return rangeChangeRatio > m_config.minRangeChangeRatio ||
-                   minChangeRatio > m_config.minRangeChangeRatio ||
-                   maxChangeRatio > m_config.minRangeChangeRatio;
+            return rangeChangeRatio > m_config.minRangeUpdateThreshold ||
+                   minChangeRatio > m_config.minRangeUpdateThreshold ||
+                   maxChangeRatio > m_config.minRangeUpdateThreshold;
         }
 
         // 数据范围
@@ -643,5 +712,9 @@ namespace ProGraphics {
         // 计数器
         int m_updateCounter = 0;
         int m_resetCounter = 0;
+
+        // 全正值数据跟踪
+        int m_consecutivePositiveDataCount = 0;
+        bool m_allPositiveData = false;
     };
 } // namespace ProGraphics
