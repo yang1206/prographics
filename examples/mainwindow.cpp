@@ -46,7 +46,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
 void MainWindow::generateTestData() {
     // 生成标准的局部放电数据
-    auto cycleData = generateRandomAmplitudePattern();
+    auto cycleData = generateStandardPDPattern();
 
     // 添加到图表
     m_prpsChart->addCycleData(cycleData);
@@ -121,14 +121,14 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         float min;
         float max;
     } ranges[] = {
-                // {-70.0f, 0.0f},
-                // {-2000.0f, 1000.0f}, // 范围1: 负值到正值
-                // {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
-                // {-1800, -1200}, // 范围4: 全正值较小范围
-                // {0.0, 2000}, // 范围5: 全正值较大范围
-                // {2000.0f, 3000.0f}, // 范围3: 全正值较小范围
-                // // {0.0f, 70.0f},
-                // {0.0f, 0.15f},
+                {-70.0f, 0.0f},
+                {-2000.0f, 1000.0f}, // 范围1: 负值到正值
+                {-2200.0f, 1200.0f}, // 范围2: 全正值较大范围
+                {-1800, -1200}, // 范围4: 全正值较小范围
+                {0.0, 2000}, // 范围5: 全正值较大范围
+                {2000.0f, 3000.0f}, // 范围3: 全正值较小范围
+                // {0.0f, 70.0f},
+                {0.0f, 0.15f},
                 {1.0f, 1.2f},
                 // {0.0, 2000},
                 {500, 3000}
@@ -144,7 +144,7 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         initialized = true;
     }
 
-    const int rangeDurationMs = 150000;
+    const int rangeDurationMs = 8000;
     int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
     int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 
