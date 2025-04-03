@@ -46,7 +46,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
 void MainWindow::generateTestData() {
     // 生成标准的局部放电数据
-    auto cycleData = generateStandardPDPattern();
+    auto cycleData = generateRandomAmplitudePattern();
 
     // 添加到图表
     m_prpsChart->addCycleData(cycleData);
@@ -144,7 +144,7 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         initialized = true;
     }
 
-    const int rangeDurationMs = 8000;
+    const int rangeDurationMs = 2000;
     int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
     int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 
