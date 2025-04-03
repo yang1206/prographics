@@ -262,6 +262,14 @@ namespace ProGraphics {
             int positiveOnlyDetectionCount; // 需要连续检测到多少次全正值才启用特殊处理 (5表示连续5次)
 
 
+            //==================== 数据收缩检测 ====================
+            float dataShrinkRangeRatio; // 数据范围小于显示范围多少比例时考虑收缩 (0.4表示小于40%)
+            float dataShrinkMaxValueRatio; // 数据最大值小于显示最大值多少比例时考虑收缩 (0.7表示小于70%)
+            int dataShrinkDetectionWindow; // 持续检测小范围的数据点数量 (5表示连续5个点)
+            float dataShrinkHistoryRangeRatio; // 历史数据范围小于显示范围多少比例才确认收缩 (0.5表示小于50%)
+            float dataShrinkHistoryMaxRatio; // 历史数据最大值小于显示最大值多少比例才确认收缩 (0.75表示小于75%)
+
+
             DynamicRangeConfig(): dataExceedThreshold(0.1f), // 数据超出范围10%时扩展
                                   dataUnderUtilizationThreshold(0.3f), // 数据使用不足70%时收缩
                                   expandPaddingRatio(0.10f), // 扩展时添加10%缓冲区
@@ -296,7 +304,13 @@ namespace ProGraphics {
                                   // 全正值数据处理
                                   forceZeroMinForPositiveOnly(false), // 默认不强制全正值数据从0开始
                                   positiveOnlyShrinkAcceleration(0.1f), // 全正值数据收缩加速10%
-                                  positiveOnlyDetectionCount(5) // 连续5次检测到全正值才启用特殊处理
+                                  positiveOnlyDetectionCount(5), // 连续5次检测到全正值才启用特殊处理
+                                  dataShrinkRangeRatio(0.4f), // 数据范围小于显示范围的40%时考虑收缩
+                                  dataShrinkMaxValueRatio(0.7f), // 数据最大值小于显示最大值的70%时考虑收缩
+                                  dataShrinkDetectionWindow(5), // 使用5个点检测持续小范围
+                                  dataShrinkHistoryRangeRatio(0.5f), // 历史数据范围需小于显示范围的50%
+                                  dataShrinkHistoryMaxRatio(0.75f) // 历史数据最大值需小于显示最大值的75%
+
             {
             }
         };
@@ -468,9 +482,42 @@ namespace ProGraphics {
             // 检查数据是否超出当前显示范围
             bool dataOutOfRange = newMin < m_displayMin || newMax > m_displayMax;
 
+            // 检查数据是否显著小于当前范围 - 新增
+            bool dataShrunkSignificantly = false;
+            if (m_rangeInitialized) {
+                float currentDisplayRange = m_displayMax - m_displayMin;
+                float dataRange = newMax - newMin;
+
+                // 检查以下条件：
+                // 1. 数据范围小于显示范围的40%
+                // 2. 数据最大值小于显示最大值的70%
+                if (dataRange < currentDisplayRange * m_config.dataShrinkRangeRatio &&
+                    newMax < m_displayMax * m_config.dataShrinkMaxValueRatio &&
+                    m_recentRanges.size() >= m_config.dataShrinkDetectionWindow) {
+                    // 确认持续小范围
+                    bool sustainedSmallRange = true;
+                    for (size_t i = m_recentRanges.size() - m_config.dataShrinkDetectionWindow;
+                         i < m_recentRanges.size(); i++) {
+                        float rangeWidth = m_recentRanges[i].second - m_recentRanges[i].first;
+                        if (rangeWidth > currentDisplayRange * m_config.dataShrinkHistoryRangeRatio ||
+                            m_recentRanges[i].second > m_displayMax * m_config.dataShrinkHistoryMaxRatio) {
+                            sustainedSmallRange = false;
+                            break;
+                        }
+                    }
+
+                    if (sustainedSmallRange) {
+                        dataShrunkSignificantly = true;
+                        // qDebug() << "检测到数据持续显著小于当前量程:"
+                        //         << "数据:" << newMin << "-" << newMax
+                        //         << "显示:" << m_displayMin << "-" << m_displayMax;
+                    }
+                }
+            }
+
             // 周期性范围检查或强制更新或数据超出范围
             if (++m_resetCounter % m_config.periodicRangeCheckCount == 0 ||
-                forceUpdate || dataOutOfRange || suddenRangeDecrease) {
+                forceUpdate || dataOutOfRange || suddenRangeDecrease || dataShrunkSignificantly) {
                 m_resetCounter = 0;
 
                 // 确保数据范围有效
@@ -479,7 +526,7 @@ namespace ProGraphics {
                 }
 
                 // 如果是突然范围减小，可以额外设置一个加速因子
-                bool fastShrink = suddenRangeDecrease;
+                bool fastShrink = suddenRangeDecrease || dataShrunkSignificantly;
 
                 // 计算新的显示范围
                 auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(forceUpdate || dataOutOfRange, fastShrink);
