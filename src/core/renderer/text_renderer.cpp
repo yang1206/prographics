@@ -33,61 +33,93 @@ namespace ProGraphics {
                                         const QMatrix4x4 &viewMatrix,
                                         const QMatrix4x4 &projectionMatrix,
                                         int width, int height) {
+    // 输入参数有效性检查
+    if (width <= 0 || height <= 0) {
+        return QVector2D(-1, -1); // 返回无效坐标
+    }
+
     QVector4D clipSpace =
         projectionMatrix * viewMatrix * QVector4D(worldPos, 1.0f);
 
+    // 更严格的w分量检查，避免除零和极小值问题
     if (qAbs(clipSpace.w()) < 0.0001f)
-      return QVector2D(-1, -1);
+        return QVector2D(-1, -1);
 
-    QVector3D ndc = QVector3D(clipSpace) / clipSpace.w();
+    // 执行透视除法
+    QVector3D ndc = QVector3D(clipSpace.x() / clipSpace.w(),
+                              clipSpace.y() / clipSpace.w(),
+                              clipSpace.z() / clipSpace.w());
+    
+    // 确保NDC在有效范围内，否则返回无效坐标
+    if (ndc.x() < -1.0f || ndc.x() > 1.0f || 
+        ndc.y() < -1.0f || ndc.y() > 1.0f) {
+        return QVector2D(-1, -1);
+    }
 
-    return QVector2D((ndc.x() + 1.0f) * width / 2, (1.0f - ndc.y()) * height / 2);
+    // 转换为屏幕坐标
+    float screenX = (ndc.x() + 1.0f) * width / 2.0f;
+    float screenY = (1.0f - ndc.y()) * height / 2.0f;
+    
+    return QVector2D(screenX, screenY);
   }
 
   void TextRenderer::render(QPainter &painter, const QMatrix4x4 &viewMatrix,
                             const QMatrix4x4 &projectionMatrix, int width,
                             int height) {
+    // 输入参数有效性检查
+    if (width <= 0 || height <= 0 || m_labels.empty()) {
+        return;
+    }
+
     painter.setRenderHint(QPainter::TextAntialiasing);
 
     for (const auto &label: m_labels) {
-      if (!label->visible)
-        continue;
+        if (!label || !label->visible)
+            continue;
 
-      // 设置字体样式
-      QFont font(label->style.fontFamily, label->style.fontSize);
-      font.setBold(label->style.bold);
-      font.setItalic(label->style.italic);
-      painter.setFont(font);
+        // 计算屏幕位置
+        QVector2D screenPos = worldToScreen(label->position, viewMatrix,
+                                        projectionMatrix, width, height);
+        
+        // 检查计算得到的屏幕坐标是否有效
+        if (screenPos.x() < 0 || screenPos.y() < 0 || 
+            screenPos.x() > width || screenPos.y() > height) {
+            continue;  // 跳过视口外的标签
+        }
 
-      // 设置颜色
-      painter.setPen(label->style.color);
+        // 设置字体样式
+        QFont font(label->style.fontFamily, label->style.fontSize);
+        font.setBold(label->style.bold);
+        font.setItalic(label->style.italic);
+        painter.setFont(font);
 
-      // 计算屏幕位置
-      QVector2D screenPos = worldToScreen(label->position, viewMatrix,
-                                          projectionMatrix, width, height);
-      if (screenPos.x() < 0 || screenPos.y() < 0)
-        continue;
+        // 设置颜色
+        painter.setPen(label->style.color);
 
-      // 计算文本大小
-      QFontMetrics fm(painter.font());
-      QRect textRect = fm.boundingRect(label->text);
+        // 计算文本大小
+        QFontMetrics fm(painter.font());
+        QRect textRect = fm.boundingRect(label->text);
 
-      // 根据对齐方式调整位置
-      if (label->alignment & Qt::AlignRight)
-        screenPos.setX(screenPos.x() - textRect.width());
-      else if (label->alignment & Qt::AlignHCenter)
-        screenPos.setX(screenPos.x() - textRect.width() / 2);
+        // 根据对齐方式调整位置
+        if (label->alignment & Qt::AlignRight)
+            screenPos.setX(screenPos.x() - textRect.width());
+        else if (label->alignment & Qt::AlignHCenter)
+            screenPos.setX(screenPos.x() - textRect.width() / 2);
 
-      if (label->alignment & Qt::AlignBottom)
-        screenPos.setY(screenPos.y() + textRect.height());
-      else if (label->alignment & Qt::AlignVCenter)
-        screenPos.setY(screenPos.y() + textRect.height() / 2);
+        if (label->alignment & Qt::AlignBottom)
+            screenPos.setY(screenPos.y() + textRect.height());
+        else if (label->alignment & Qt::AlignVCenter)
+            screenPos.setY(screenPos.y() + textRect.height() / 2);
 
-      // 应用偏移
-      screenPos += QVector2D(label->offsetX, label->offsetY);
+        // 应用偏移
+        screenPos += QVector2D(label->offsetX, label->offsetY);
 
-      // 绘制文本
-      painter.drawText(QPointF(screenPos.x(), screenPos.y()), label->text);
+        // 确保最终位置在屏幕内
+        float finalX = qBound(0.0f, screenPos.x(), static_cast<float>(width));
+        float finalY = qBound(0.0f, screenPos.y(), static_cast<float>(height));
+
+        // 绘制文本
+        painter.drawText(QPointF(finalX, finalY), label->text);
     }
   }
 

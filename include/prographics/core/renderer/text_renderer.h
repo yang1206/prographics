@@ -76,7 +76,7 @@ class TextRenderer {
          *
          * 初始化为可见状态，无偏移，居中对齐
          */
-        Label() : visible(true), offsetX(0.0f), offsetY(0.0f) {}
+        Label() : visible(true), offsetX(0.0f), offsetY(0.0f), alignment(Qt::AlignCenter) {}
     };
 
     /**
