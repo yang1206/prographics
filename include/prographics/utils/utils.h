@@ -669,9 +669,9 @@ namespace ProGraphics {
                         if (fastShrink) {
                             // 快速收缩模式时使用更激进的收缩步长
                             shrinkStep = std::min(0.5f, shrinkStep * 3.0f);
-                            qDebug() << "使用快速收缩步长:" << shrinkStep;
+                            // qDebug() << "使用快速收缩步长:" << shrinkStep;
                         } else {
-                            qDebug() << "数据范围差异大，使用加速收缩步长:" << shrinkStep;
+                            // qDebug() << "数据范围差异大，使用加速收缩步长:" << shrinkStep;
                         }
                     }
 
@@ -684,7 +684,7 @@ namespace ProGraphics {
                         forceZeroMinForPositiveOnly
                     ) {
                         targetMin = 0.0f;
-                        qDebug() << "检测到全正值数据，强制目标最小值为0";
+                        // qDebug() << "检测到全正值数据，强制目标最小值为0";
                     }
                     // 对于正数范围，确保最小值不会变为负数
                     else if (m_dataMin >= 0) {
