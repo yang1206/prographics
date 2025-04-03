@@ -20,6 +20,7 @@
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabWidget = new QTabWidget(this);
     setCentralWidget(m_tabWidget);
+
     // 添加第一个示例
     m_prpsChart = new ProGraphics::PRPSChart(this);
     m_tabWidget->addTab(m_prpsChart, "PRPS");
@@ -28,16 +29,37 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_tabWidget->addTab(new TestCoordinate3d(this), "测试3d坐标系统");
     m_tabWidget->addTab(new TestCoordinate2d(this), "测试2d坐标系统");
-    // m_tabWidget->addTab(new PlayGround(this), "示例游乐场");
-    // m_tabWidget->addTab(new ThreeDCoordinate(this), "3维坐标系");
-    // m_tabWidget->addTab(new TexturedRectWidget(this), "纹理矩形");
-    // m_tabWidget->addTab(new TexturedUnitWidget(this), "纹理单元");
-    // m_tabWidget->addTab(new MatrixWidget(this), "矩阵");
-    // m_tabWidget->addTab(new CoordinateWidget(this), "坐标");
-    // m_tabWidget->addTab(new ControlCameraWidget(this), "控制相机");
+
+    // 添加数据生成模式控制
+    QWidget *controlPanel = new QWidget(this);
+    QVBoxLayout *layout = new QVBoxLayout(controlPanel);
+
+    QComboBox *modeSelector = new QComboBox(controlPanel);
+    modeSelector->addItem("随机幅值模式", static_cast<int>(DataGenerationMode::RANDOM_AMPLITUDE));
+    modeSelector->addItem("平滑变化模式", static_cast<int>(DataGenerationMode::SMOOTH_CHANGING));
+    modeSelector->addItem("标准放电模式", static_cast<int>(DataGenerationMode::STANDARD_PD));
+
+    connect(modeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        QComboBox *comboBox = qobject_cast<QComboBox *>(sender());
+        if (comboBox) {
+            m_dataGenerationMode = static_cast<DataGenerationMode>(comboBox->itemData(index).toInt());
+            qDebug() << "切换数据生成模式: " << index;
+        }
+    });
+
+    layout->addWidget(new QLabel("数据生成模式:"));
+    layout->addWidget(modeSelector);
+    layout->addStretch();
+
+
+    m_tabWidget->addTab(controlPanel, "控制面板");
+
+    // 默认使用平滑变化模式
+    m_dataGenerationMode = DataGenerationMode::RANDOM_AMPLITUDE;
 
     // 设置窗口大小
     resize(800, 600);
+
     // 设置数据生成定时器
     connect(&m_dataTimer, &QTimer::timeout, this, &MainWindow::generateTestData);
     m_dataTimer.setInterval(20);
@@ -45,8 +67,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 }
 
 void MainWindow::generateTestData() {
-    // 生成标准的局部放电数据
-    auto cycleData = generateRandomAmplitudePattern();
+    // 生成测试数据
+    std::vector<float> cycleData;
+
+    // 使用选定的数据生成方法
+    switch (m_dataGenerationMode) {
+        case DataGenerationMode::RANDOM_AMPLITUDE:
+            cycleData = generateRandomAmplitudePattern();
+            break;
+        case DataGenerationMode::SMOOTH_CHANGING:
+            cycleData = generateSmoothlyChangingPattern();
+            break;
+        case DataGenerationMode::STANDARD_PD:
+            cycleData = generateStandardPDPattern();
+            break;
+    }
 
     // 添加到图表
     m_prpsChart->addCycleData(cycleData);
@@ -144,7 +179,7 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         initialized = true;
     }
 
-    const int rangeDurationMs = 7000;
+    const int rangeDurationMs = 5000;
     int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
     int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 
@@ -162,6 +197,129 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
     for (int i = 0; i < ProGraphics::PRPSConstants::PHASE_POINTS; ++i) {
         cycleData[i] = amplitudeDist(gen);
     }
+
+    return cycleData;
+}
+
+std::vector<float> MainWindow::generateSmoothlyChangingPattern() const {
+    std::vector<float> cycleData(ProGraphics::PRPSConstants::PHASE_POINTS, 0.0f);
+
+    // 创建随机数生成器
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+
+    // 定义平滑变化的状态和参数
+    static enum RangeState {
+        SHRINKING, // 范围正在缩小
+        EXPANDING, // 范围正在扩大
+        STABILIZING // 范围稳定期
+    } currentState = EXPANDING;
+
+    // 当前基准范围值
+    static float currentBaseMax = 10.0f; // 初始值设为中等大小
+    static float currentBaseMin = 0.0f;
+
+    // 范围边界值
+    static const float ABSOLUTE_MIN_VALUE = 0.0f; // 最小值下限
+    static const float MIN_RANGE_VALUE = 10.0f; // 最小范围值
+    static const float MAX_RANGE_VALUE = 500.0f; // 最大范围值
+
+    // 速度和平滑控制参数
+    static const float RANGE_CHANGE_SPEED = 1.0f; // 每次更新的基础变化量(大幅降低)
+    static const float MIN_VALUE_CHANGE_RATIO = 0.2f; // 最小值变化速度比例
+
+    // 稳定期控制
+    static const int STABILIZE_DURATION = 400; // 稳定期持续时间(帧数)
+    static int stabilizeCounter = 0;
+
+    // 平滑过渡控制
+    static float targetBaseMax = currentBaseMax; // 目标最大值
+    static float targetBaseMin = currentBaseMin; // 目标最小值
+    static const float SMOOTHING_FACTOR = 0.005f; // 平滑过渡因子(越小越平滑)
+
+    // 状态变化控制
+    static int cycleCounter = 0;
+    cycleCounter++;
+
+    // 状态机逻辑
+    if (currentState == STABILIZING) {
+        // 稳定期 - 保持当前范围一段时间
+        stabilizeCounter++;
+        if (stabilizeCounter >= STABILIZE_DURATION) {
+            stabilizeCounter = 0;
+            // 从稳定期结束后决定下一个状态
+            if (currentBaseMax >= MAX_RANGE_VALUE * 0.95f) {
+                currentState = SHRINKING;
+                // qDebug() << "数据范围变化: 开始缩小范围";
+            } else if (currentBaseMax <= MIN_RANGE_VALUE * 1.5f) {
+                currentState = EXPANDING;
+                // qDebug() << "数据范围变化: 开始扩大范围";
+            } else {
+                // 在中间范围随机决定下一步是扩大还是缩小
+                currentState = (gen() % 2 == 0) ? SHRINKING : EXPANDING;
+                // qDebug() << "数据范围变化: 随机" << (currentState == SHRINKING ? "缩小" : "扩大") << "范围";
+            }
+        }
+    } else if (currentState == SHRINKING) {
+        // 范围缩小阶段 - 设置目标值
+        targetBaseMax = MIN_RANGE_VALUE;
+        targetBaseMin = ABSOLUTE_MIN_VALUE;
+
+        // 检查是否达到目标(接近最小范围)
+        if (std::abs(currentBaseMax - MIN_RANGE_VALUE) < 5.0f) {
+            currentState = STABILIZING;
+            // qDebug() << "数据范围变化: 到达最小范围，开始稳定期";
+        }
+    } else if (currentState == EXPANDING) {
+        // 范围扩大阶段 - 设置目标值
+        targetBaseMax = MAX_RANGE_VALUE;
+        targetBaseMin = ABSOLUTE_MIN_VALUE;
+
+        // 检查是否达到目标(接近最大范围)
+        if (std::abs(currentBaseMax - MAX_RANGE_VALUE) < 50.0f) {
+            currentState = STABILIZING;
+            // qDebug() << "数据范围变化: 到达最大范围，开始稳定期";
+        }
+    }
+
+    // 使用平滑插值逐渐接近目标值(类似于弹簧效果)
+    currentBaseMax += (targetBaseMax - currentBaseMax) * SMOOTHING_FACTOR;
+    currentBaseMin += (targetBaseMin - currentBaseMin) * SMOOTHING_FACTOR * MIN_VALUE_CHANGE_RATIO;
+
+    // 确保范围值在合理边界内
+    currentBaseMax = std::max(MIN_RANGE_VALUE, std::min(MAX_RANGE_VALUE, currentBaseMax));
+    currentBaseMin = std::max(ABSOLUTE_MIN_VALUE, std::min(currentBaseMax * 0.5f, currentBaseMin));
+
+    // 计算当前范围大小，用于调试输出
+    float currentRange = currentBaseMax - currentBaseMin;
+
+    // 创建分布，加入轻微随机抖动使测试更真实
+    float jitterFactor = 0.05f; // 5%的随机抖动
+    float minWithJitter = currentBaseMin * (1.0f - jitterFactor + jitterFactor * 2.0f * static_cast<float>(gen()) /
+                                            static_cast<float>(gen.max()));
+    float maxWithJitter = currentBaseMax * (1.0f - jitterFactor + jitterFactor * 2.0f * static_cast<float>(gen()) /
+                                            static_cast<float>(gen.max()));
+
+    std::uniform_real_distribution<float> amplitudeDist(minWithJitter, maxWithJitter);
+
+    // 为每个相位点生成平滑随机数据
+    for (int i = 0; i < ProGraphics::PRPSConstants::PHASE_POINTS; ++i) {
+        // 使用正弦函数创造更平滑的数据分布
+        float phaseFactor = 0.5f + 0.5f * std::sin((i + cycleCounter * 0.1f) * 0.05f);
+        float amplitude = minWithJitter + phaseFactor * (maxWithJitter - minWithJitter);
+
+        // 添加随机性，但保持平滑
+        float randomness = 0.2f; // 20%的随机性
+        cycleData[i] = amplitude * (1.0f - randomness) + amplitudeDist(gen) * randomness;
+    }
+
+    // 每200次更新输出一次当前范围，帮助观察
+    // if (cycleCounter % 200 == 0) {
+    //     qDebug() << "当前数据范围: " << currentBaseMin << " 到 " << currentBaseMax
+    //             << " (范围大小: " << currentRange << ")"
+    //             << " 状态: " << (currentState == SHRINKING ? "缩小" : (currentState == EXPANDING ? "扩大" : "稳定"))
+    //             << " 稳定计数: " << stabilizeCounter;
+    // }
 
     return cycleData;
 }

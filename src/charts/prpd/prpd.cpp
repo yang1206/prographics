@@ -11,17 +11,6 @@ namespace ProGraphics {
 
         // 初始化动态量程
         DynamicRange::DynamicRangeConfig config;
-        config.dataExceedThreshold = 0.1f; // 降低扩展阈值，更积极扩展
-        config.dataFluctuationThreshold = 0.4f; // 提高收缩阈值，减少收缩频率
-        config.stabilityHistorySize = 20; // 减少稳定性检查样本数
-        config.stableStateCountThreshold = 3; // 减少稳定计数器阈值
-        config.targetTickCount = 5; // 设置期望的刻度数量为5
-        config.minValuePaddingRatio = 0.0f; // 最小值不添加缓冲区
-        config.maxValuePaddingRatio = 0.05f; // 最大值添加5%缓冲区
-        config.normalShrinkSpeed = 0.02f; // 使用更小的收缩步长
-        config.maxShrinkSpeed = 0.1f; // 限制最大收缩步长
-
-
         m_dynamicRange = DynamicRange(0.0f, 0.0f, config);
 
         // 设置初始坐标轴范围
@@ -94,8 +83,6 @@ namespace ProGraphics {
             return;
         }
 
-        // 记录旧的显示范围
-        auto [oldDisplayMin, oldDisplayMax] = m_dynamicRange.getDisplayRange();
 
         // 更新动态量程
         bool rangeChanged = false;
@@ -110,6 +97,7 @@ namespace ProGraphics {
             // 更新坐标轴刻度
             float step = calculateNiceTickStep(newDisplayMax - newDisplayMin);
             setTicksRange('y', newDisplayMin, newDisplayMax, step);
+            // qDebug() << "PRPD - 量程更新:" << newDisplayMin << "-" << newDisplayMax;
 
             // 立即重建频次表和所有点位置
             rebuildFrequencyTable();

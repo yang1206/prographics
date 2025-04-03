@@ -220,97 +220,45 @@ namespace ProGraphics {
 
     // 动态量程配置类
     class DynamicRange {
+    private:
+        int m_frameCounter = 0;
+        // 当前显示范围
+        float m_currentMin = 0.0f;
+        float m_currentMax = 0.0f;
+
+        // 目标范围
+        float m_targetMin = 0.0f;
+        float m_targetMax = 0.0f;
+
+
+        // 状态标志
+        bool m_initialized = false;
+
     public:
-        // 统一的范围参数配置结构体
         struct DynamicRangeConfig {
-            //==================== 范围扩展与收缩控制 ====================
-            float dataExceedThreshold; // 数据超出当前范围多少比例时立即扩展范围 (0.1表示超出10%)
-            float dataUnderUtilizationThreshold; // 数据仅使用显示范围的多少比例时开始收缩 (0.3表示使用不足70%时收缩)
-            float expandPaddingRatio; // 扩展范围时额外添加的缓冲区比例 (0.1表示添加10%的缓冲区)
-            float shrinkPaddingRatio; // 收缩范围时保留的缓冲区比例 (0.1表示保留10%的缓冲区)
-            float minRangeUpdateThreshold; // 范围变化超过此比例才更新显示 (0.08表示变化超过8%才更新)
+            //==================== 核心参数 ====================
+            float expandThreshold; // 数据超出范围多少比例时立即扩展 (0.0表示任何超出都立即扩展)
+            float shrinkThreshold; // 数据使用范围比例低于此值时收缩 (0.3表示使用不足70%时收缩)
+            float significantShrinkRatio; // 数据范围显著缩小的比例阈值 (0.25表示缩小到1/4或更少时为显著)
+            float bufferRatio; // 缓冲区比例 (0.1表示添加10%缓冲区)
+            int updateInterval; // 多少帧检查一次量程 (5表示每5帧检查一次)
+            int targetTickCount; // 期望的刻度数量 (6-8通常较好)
 
-            //==================== 刻度与显示控制 ====================
-            int targetTickCount; // 坐标轴期望的刻度数量 (通常为5-7)
+            //==================== 平滑控制 ====================
+            float expandSmoothFactor; // 范围扩大时的平滑系数 (0.2表示每次向目标移动20%)
+            float shrinkSmoothFactor; // 范围收缩时的平滑系数 (0.3表示每次向目标移动30%)
+            float fastShrinkFactor; // 显著缩小时的加速系数 (0.6表示加速到60%每次)
 
-            //==================== 稳定性检测与处理 ====================
-            int stabilityHistorySize; // 稳定性检测的历史数据点数量 (20表示跟踪最近20次更新)
-            float dataFluctuationThreshold; // 数据波动低于此比例时判定为稳定 (0.2表示波动不超过当前范围的20%)
-            int stableStateCountThreshold; // 连续检测到稳定状态多少次后强制更新范围 (3表示连续3次稳定后更新)
-
-            //==================== 特殊情况处理 ====================
-            float smallRangeThreshold; // 小范围数据阈值 (数据范围小于5.0时使用特殊处理)
-            float minValuePaddingRatio; // 最小值的缓冲区比例 (0.0表示不为最小值添加额外缓冲区)
-            float maxValuePaddingRatio; // 最大值的缓冲区比例 (0.01表示为最大值添加1%缓冲区)
-
-            //==================== 收缩速度控制 ====================
-            float normalShrinkSpeed; // 普通情况下的收缩速度 (0.05表示每次向目标收缩5%)
-            float maxShrinkSpeed; // 最大允许的收缩速度 (0.2表示每次最多收缩20%)
-
-            //==================== 小数据范围特殊处理 ====================
-            float tinyDataRangeThreshold; // 微小数据范围阈值 (数据范围小于1.0时使用固定量程)
-            float tinyDataFixedRange; // 微小数据使用的固定量程大小 (5.0表示使用固定量程5.0)
-            bool enableTinyDataFixedRange; // 是否启用微小数据固定量程 (true表示启用)
-
-            //==================== 更新频率控制 ====================
-            int dataUpdateThrottleCount; // 数据更新多少次才进行动态量程处理 (10表示每10次数据更新处理一次)
-            int periodicRangeCheckCount; // 多少次更新后强制检查范围 (50表示每50次更新强制检查一次)
-
-            //==================== 全正值数据处理 ====================
-            bool forceZeroMinForPositiveOnly; // 全正值数据时是否强制从0开始 (true表示强制从0开始)
-            float positiveOnlyShrinkAcceleration; // 全正值数据时的收缩加速系数 (0.3表示比普通收缩快3倍)
-            int positiveOnlyDetectionCount; // 需要连续检测到多少次全正值才启用特殊处理 (5表示连续5次)
-
-
-            //==================== 数据收缩检测 ====================
-            float dataShrinkRangeRatio; // 数据范围小于显示范围多少比例时考虑收缩 (0.4表示小于40%)
-            float dataShrinkMaxValueRatio; // 数据最大值小于显示最大值多少比例时考虑收缩 (0.7表示小于70%)
-            int dataShrinkDetectionWindow; // 持续检测小范围的数据点数量 (5表示连续5个点)
-            float dataShrinkHistoryRangeRatio; // 历史数据范围小于显示范围多少比例才确认收缩 (0.5表示小于50%)
-            float dataShrinkHistoryMaxRatio; // 历史数据最大值小于显示最大值多少比例才确认收缩 (0.75表示小于75%)
-
-
-            DynamicRangeConfig(): dataExceedThreshold(0.1f), // 数据超出范围10%时扩展
-                                  dataUnderUtilizationThreshold(0.3f), // 数据使用不足70%时收缩
-                                  expandPaddingRatio(0.10f), // 扩展时添加10%缓冲区
-                                  shrinkPaddingRatio(0.1f), // 收缩时保留10%缓冲区
-                                  minRangeUpdateThreshold(0.05f), // 范围变化超过8%才更新显示
-                                  // 刻度与显示控制
-                                  targetTickCount(6), // 期望显示6个刻度
-
-                                  // 稳定性检测与处理
-                                  stabilityHistorySize(20), // 跟踪最近20个数据点
-                                  dataFluctuationThreshold(0.2f), // 波动不超过20%判定为稳定
-                                  stableStateCountThreshold(3), // 连续3次稳定后强制更新
-
-                                  // 特殊情况处理
-                                  smallRangeThreshold(5.0f), // 范围小于5.0使用特殊处理
-                                  minValuePaddingRatio(0.0f), // 最小值不添加缓冲区
-                                  maxValuePaddingRatio(0.01f), // 最大值添加1%缓冲区
-
-                                  // 收缩速度控制
-                                  normalShrinkSpeed(0.15f), // 普通收缩速度5%
-                                  maxShrinkSpeed(0.35f), // 最大收缩速度20%
-
-                                  // 小数据范围特殊处理
-                                  tinyDataRangeThreshold(1.0f), // 范围小于1.0使用固定量程
-                                  tinyDataFixedRange(5.0f), // 微小数据使用固定量程5.0
-                                  enableTinyDataFixedRange(false), // 默认不启用微小数据固定量程
-
-                                  // 更新频率控制
-                                  dataUpdateThrottleCount(10), // 每10次数据更新处理一次
-                                  periodicRangeCheckCount(20), // 每50次更新强制检查一次
-
-                                  // 全正值数据处理
-                                  forceZeroMinForPositiveOnly(false), // 默认不强制全正值数据从0开始
-                                  positiveOnlyShrinkAcceleration(0.1f), // 全正值数据收缩加速10%
-                                  positiveOnlyDetectionCount(5), // 连续5次检测到全正值才启用特殊处理
-                                  dataShrinkRangeRatio(0.4f), // 数据范围小于显示范围的40%时考虑收缩
-                                  dataShrinkMaxValueRatio(0.7f), // 数据最大值小于显示最大值的70%时考虑收缩
-                                  dataShrinkDetectionWindow(5), // 使用5个点检测持续小范围
-                                  dataShrinkHistoryRangeRatio(0.5f), // 历史数据范围需小于显示范围的50%
-                                  dataShrinkHistoryMaxRatio(0.75f) // 历史数据最大值需小于显示最大值的75%
-
+            DynamicRangeConfig()
+                : expandThreshold(0.0f), // 任何超出都立即扩展
+                  shrinkThreshold(0.1f), // 使用不足70%时收缩
+                  significantShrinkRatio(0.20f), // 缩小到1/4视为显著
+                  bufferRatio(0.01f), // 添加10%的缓冲区
+                  updateInterval(10), // 每5帧检查一次
+                  targetTickCount(6), // 6个刻度
+                  expandSmoothFactor(0.1f), // 扩大时平滑移动20%
+                  shrinkSmoothFactor(0.2f), // 收缩时平滑移动30%
+                  fastShrinkFactor(0.6f) // 显著缩小时加速到60%
             {
             }
         };
@@ -319,502 +267,205 @@ namespace ProGraphics {
         DynamicRange(float initialMin = 0.0f,
                      float initialMax = 0.0f,
                      const DynamicRangeConfig &config = DynamicRangeConfig())
-            : m_dataMin(initialMin),
-              m_dataMax(initialMax),
-              m_displayMin(initialMin),
-              m_displayMax(initialMax),
+            : m_currentMin(initialMin),
+              m_currentMax(initialMax),
+              m_targetMin(initialMin),
+              m_targetMax(initialMax),
               m_config(config),
-              m_rangeInitialized(false) {
+              m_initialized(false) {
         }
 
-        const DynamicRangeConfig &getConfig() const {
-            return m_config;
-        }
-
-        // 设置配置
-        void setConfig(const DynamicRangeConfig &config) {
-            m_config = config;
-        }
-
-
+        DynamicRangeConfig getConfig() const { return m_config; }
         // 更新范围，返回是否需要重建绘图数据
         bool updateRange(const std::vector<float> &newData) {
             if (newData.empty())
                 return false;
 
-            // 保存旧范围以检测变化
-            float oldDisplayMin = m_displayMin;
-            float oldDisplayMax = m_displayMax;
-
-            // 计算新数据范围
+            // 1. 计算当前数据范围
             auto [minIt, maxIt] = std::minmax_element(newData.begin(), newData.end());
-            float newMin = *minIt;
-            float newMax = *maxIt;
-            float newRange = newMax - newMin;
+            float dataMin = *minIt;
+            float dataMax = *maxIt;
 
-            // 检测数据范围突变 - 新增代码
-            static float lastMaxRange = 0.0f;
-            bool suddenRangeDecrease = false;
+            // 记录初始显示范围用于判断变化
+            float oldMin = m_currentMin;
+            float oldMax = m_currentMax;
 
-            if (m_rangeInitialized && lastMaxRange > 0.0f) {
-                // 如果新数据范围显著小于历史最大范围（如缩小到30%或更少）
-                float currentDisplayRange = m_displayMax - m_displayMin;
-                if (newRange < currentDisplayRange * 0.3f &&
-                    newMax < m_displayMax * 0.7f && // 确保最大值也显著减小
-                    m_recentRanges.size() >= 3) {
-                    // 确保有足够历史数据
-
-                    // 检查最近几次的数据是否都在较小范围内
-                    bool allRecentSmall = true;
-                    for (size_t i = m_recentRanges.size() - 3; i < m_recentRanges.size(); i++) {
-                        if (m_recentRanges[i].second - m_recentRanges[i].first > newRange * 1.5f) {
-                            allRecentSmall = false;
-                            break;
-                        }
-                    }
-
-                    if (allRecentSmall) {
-                        suddenRangeDecrease = true;
-                        // qDebug() << "检测到数据范围显著缩小:"
-                        //         << "当前:" << newMin << "-" << newMax
-                        //         << "显示:" << m_displayMin << "-" << m_displayMax;
-                    }
-                }
-            }
-
-            // 更新历史最大范围
-            lastMaxRange = std::max(lastMaxRange, m_displayMax - m_displayMin);
-
-            // 检查数据是否全为正值
-            bool currentDataAllPositive = true;
-            for (const auto &value: newData) {
-                if (value < 0) {
-                    currentDataAllPositive = false;
-                    break;
-                }
-            }
-
-            // 跟踪连续的全正值数据
-            if (currentDataAllPositive) {
-                m_consecutivePositiveDataCount++;
-                if (m_consecutivePositiveDataCount >= m_config.positiveOnlyShrinkAcceleration) {
-                    m_allPositiveData = true;
-                }
-            } else {
-                m_consecutivePositiveDataCount = 0;
-                m_allPositiveData = false;
-            }
-
-            // 首次数据初始化范围
-            if (!m_rangeInitialized) {
-                m_dataMin = newMin;
-                m_dataMax = newMax;
-
-                // 计算初始显示范围（带缓冲）
-                float dataRange = newMax - newMin;
-                float buffer = dataRange * 0.001f; // 使用较小的缓冲区
-
-                // 对于正数范围，确保最小值不会因缓冲区变为负数
-                float minWithBuffer = (newMin >= 0) ? std::max(0.0f, newMin - buffer) : newMin - buffer;
-                float maxWithBuffer = newMax + buffer;
-
-                // 先检查是否为小数据情况
-                if (m_config.enableTinyDataFixedRange && dataRange < m_config.tinyDataRangeThreshold) {
-                    // qDebug() << "初始化检测到小数据:" << newMin << "到" << newMax;
-                    // 计算范围中心
-                    float center = (newMin + newMax) / 2.0f;
-                    // 计算固定量程的一半
-                    float halfRange = m_config.tinyDataFixedRange / 2.0f;
-                    // 如果全部是正数据，确保下限不小于0
-                    if (newMin >= 0 && center - halfRange < 0) {
-                        m_displayMin = 0.0f;
-                        m_displayMax = m_config.tinyDataFixedRange;
-                    } else {
-                        m_displayMin = center - halfRange;
-                        m_displayMax = center + halfRange;
-                    }
-
-                    // 计算美观范围
-                    auto [niceMin, niceMax] = calculateNiceRange(m_displayMin, m_displayMax, m_config.targetTickCount);
-                    m_displayMin = niceMin;
-                    m_displayMax = niceMax;
-                } else {
-                    // 正常计算美观范围
-                    auto [initialMin, initialMax] =
-                            calculateNiceRange(minWithBuffer, maxWithBuffer, m_config.targetTickCount);
-                    m_displayMin = initialMin;
-                    m_displayMax = initialMax;
-                }
-                m_rangeInitialized = true;
-
-                // qDebug() << "初始化范围:" << newMin << "到" << newMax;
-                // qDebug() << "缓冲后范围:" << minWithBuffer << "到" << maxWithBuffer;
-                // qDebug() << "美观范围:" << m_displayMin << "到" << m_displayMax;
-
+            // 2. 首次初始化
+            if (!m_initialized) {
+                initializeRange(dataMin, dataMax);
+                m_initialized = true;
                 return true;
             }
 
-            // 更新实际数据范围
-            bool dataRangeChanged = false;
-            if (newMin < m_dataMin) {
-                m_dataMin = newMin;
-                dataRangeChanged = true;
-            }
-            if (newMax > m_dataMax) {
-                m_dataMax = newMax;
-                dataRangeChanged = true;
+            // 3. 数据超出当前范围时立即更新
+            if (dataMin < m_currentMin || dataMax > m_currentMax) {
+                updateTargetRange(dataMin, dataMax);
+
+                // 使用扩展平滑因子
+                float smoothFactor = m_config.expandSmoothFactor;
+                smoothUpdateCurrentRange(smoothFactor);
+
+                return isSignificantChange(oldMin, oldMax);
             }
 
-            // 跟踪最近范围以检测稳定性
-            m_recentRanges.push_back({newMin, newMax});
-            if (m_recentRanges.size() > m_config.stabilityHistorySize) {
-                m_recentRanges.pop_front();
-            }
-
-            if (++m_updateCounter % m_config.dataUpdateThrottleCount != 0 && !dataRangeChanged) {
+            // 4. 周期性检查量程是否需要更新
+            if (++m_frameCounter % m_config.updateInterval != 0) {
                 return false;
             }
-            m_updateCounter = 0;
+            m_frameCounter = 0;
 
-            // 检查数据稳定性
-            bool forceUpdate = checkDataStability();
+            // 5. 检查数据范围与当前量程的差距
+            float dataRange = dataMax - dataMin;
+            float currentRange = m_currentMax - m_currentMin;
+            float usageRatio = dataRange / currentRange;
 
-            // 检查数据是否超出当前显示范围
-            bool dataOutOfRange = newMin < m_displayMin || newMax > m_displayMax;
+            // 判断是否应该收缩量程
+            bool needShrink = false;
+            bool isSignificantShrink = false;
+            bool forceUpdate = false; // 新增变量
 
-            // 检查数据是否显著小于当前范围 - 新增
-            bool dataShrunkSignificantly = false;
-            if (m_rangeInitialized) {
-                float currentDisplayRange = m_displayMax - m_displayMin;
-                float dataRange = newMax - newMin;
+            // 判断数据是否显著小于当前范围
+            if (usageRatio < (1.0f - m_config.shrinkThreshold)) {
+                needShrink = true;
 
-                // 检查以下条件：
-                // 1. 数据范围小于显示范围的40%
-                // 2. 数据最大值小于显示最大值的70%
-                if (dataRange < currentDisplayRange * m_config.dataShrinkRangeRatio &&
-                    newMax < m_displayMax * m_config.dataShrinkMaxValueRatio &&
-                    m_recentRanges.size() >= m_config.dataShrinkDetectionWindow) {
-                    // 确认持续小范围
-                    bool sustainedSmallRange = true;
-                    for (size_t i = m_recentRanges.size() - m_config.dataShrinkDetectionWindow;
-                         i < m_recentRanges.size(); i++) {
-                        float rangeWidth = m_recentRanges[i].second - m_recentRanges[i].first;
-                        if (rangeWidth > currentDisplayRange * m_config.dataShrinkHistoryRangeRatio ||
-                            m_recentRanges[i].second > m_displayMax * m_config.dataShrinkHistoryMaxRatio) {
-                            sustainedSmallRange = false;
-                            break;
-                        }
-                    }
-
-                    if (sustainedSmallRange) {
-                        dataShrunkSignificantly = true;
-                        // qDebug() << "检测到数据持续显著小于当前量程:"
-                        //         << "数据:" << newMin << "-" << newMax
-                        //         << "显示:" << m_displayMin << "-" << m_displayMax;
-                    }
+                // 检查是否是显著缩小（数据范围比当前显示范围小很多）
+                if (usageRatio < m_config.significantShrinkRatio) {
+                    isSignificantShrink = true;
+                    forceUpdate = true; // 显著缩小时强制更新
+                    // qDebug() << "检测到数据显著缩小: " << usageRatio << "，强制更新量程";
                 }
             }
 
-            // 周期性范围检查或强制更新或数据超出范围
-            if (++m_resetCounter % m_config.periodicRangeCheckCount == 0 ||
-                forceUpdate || dataOutOfRange || suddenRangeDecrease || dataShrunkSignificantly) {
-                m_resetCounter = 0;
+            // 6. 需要收缩时，计算新的目标范围
+            if (needShrink) {
+                updateTargetRange(dataMin, dataMax);
 
-                // 确保数据范围有效
-                if (m_dataMin > m_dataMax) {
-                    std::swap(m_dataMin, m_dataMax);
-                }
+                // 根据收缩程度选择平滑因子
+                float smoothFactor = isSignificantShrink ? m_config.fastShrinkFactor : m_config.shrinkSmoothFactor;
 
-                // 如果是突然范围减小，可以额外设置一个加速因子
-                bool fastShrink = suddenRangeDecrease || dataShrunkSignificantly;
+                // 显著缩小时输出日志
+#ifdef DEBUG
+            if (isSignificantShrink) {
+                qDebug() << "检测到数据显著缩小: 数据范围" << dataMin << "-" << dataMax << " 占当前显示范围的"
+                         << (usageRatio * 100.0f) << "%"
+                         << " 使用加速收缩因子:" << smoothFactor;
+            }
+#endif
 
-                // 计算新的显示范围
-                auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(forceUpdate || dataOutOfRange, fastShrink);
-
-                // 检查显示范围是否发生显著变化
-                bool rangeChanged = isRangeChangedSignificantly(oldDisplayMin, oldDisplayMax,
-                                                                newDisplayMin, newDisplayMax,
-                                                                forceUpdate || dataOutOfRange);
-
-                if (rangeChanged) {
-                    m_displayMin = newDisplayMin;
-                    m_displayMax = newDisplayMax;
-
-                    // qDebug() << "动态范围:" << m_displayMin << "到" << m_displayMax;
-                    // qDebug() << "计算步长:" << calculateNiceTickStep(m_displayMax - m_displayMin, m_config.targetTickCount);
-
-                    return true;
-                }
+                // 使用选定的平滑因子更新当前范围
+                smoothUpdateCurrentRange(smoothFactor);
             }
 
-            return false;
+            // 7. 检查范围是否发生显著变化
+            return isSignificantChange(oldMin, oldMax, forceUpdate);
         }
 
-        // 获取实际数据范围
-        std::pair<float, float> getDataRange() const { return {m_dataMin, m_dataMax}; }
-
-        // 获取显示范围
-        std::pair<float, float> getDisplayRange() const { return {m_displayMin, m_displayMax}; }
+        // 获取当前显示范围
+        std::pair<float, float> getDisplayRange() const { return {m_currentMin, m_currentMax}; }
 
         // 设置显示范围
         void setDisplayRange(float min, float max) {
-            m_displayMin = min;
-            m_displayMax = max;
-            m_rangeInitialized = true;
+            m_currentMin = min;
+            m_currentMax = max;
+            m_targetMin = min;
+            m_targetMax = max;
+            m_initialized = true;
         }
 
-        // 重置范围
+        // 重置
         void reset() {
-            m_rangeInitialized = false;
-            m_dataMin = 0.0f;
-            m_dataMax = 0.0f;
-            m_displayMin = 0.0f;
-            m_displayMax = 0.0f;
-            m_recentRanges.clear();
-            m_stableCounter = 0;
-            m_dataStable = false;
-            m_updateCounter = 0;
-            m_resetCounter = 0;
+            m_initialized = false;
+            m_currentMin = 0.0f;
+            m_currentMax = 0.0f;
+            m_targetMin = 0.0f;
+            m_targetMax = 0.0f;
         }
 
-    private
-    :
-        // 检查数据稳定性，返回是否应该强制更新范围
-        bool checkDataStability() {
-            if (m_recentRanges.size() < m_config.stabilityHistorySize) {
-                return false;
-            }
+    private:
+        // 初始化范围
+        void initializeRange(float dataMin, float dataMax) {
+            // 添加缓冲区
+            float range = std::max(0.001f, dataMax - dataMin);
+            float buffer = range * m_config.bufferRatio;
 
-            // 计算最近范围的极值
-            float minRange = m_recentRanges[0].first;
-            float maxRange = m_recentRanges[0].second;
+            // 对于正数范围，确保最小值不会为负
+            float min = (dataMin >= 0) ? std::max(0.0f, dataMin - buffer) : dataMin - buffer;
+            float max = dataMax + buffer;
 
-            for (const auto &range: m_recentRanges) {
-                minRange = std::min(minRange, range.first);
-                maxRange = std::max(maxRange, range.second);
-            }
-
-            // 计算数据波动范围比例
-            float fluctuation = 0.0f;
-            if (m_displayMax > m_displayMin) {
-                fluctuation = (maxRange - minRange) / (m_displayMax - m_displayMin);
-            }
-
-            // 如果数据波动很小，认为数据稳定
-            if (fluctuation < m_config.dataFluctuationThreshold) {
-                if (!m_dataStable) {
-                    // 首次检测到稳定
-                    m_stableCounter = 1;
-                    m_stableMin = minRange;
-                    m_stableMax = maxRange;
-                    m_dataStable = true;
-                } else {
-                    // 持续稳定
-                    m_stableCounter++;
-                    // 更新稳定范围
-                    m_stableMin = std::min(m_stableMin, minRange);
-                    m_stableMax = std::max(m_stableMax, maxRange);
-                }
-            } else {
-                // 数据不稳定
-                m_dataStable = false;
-                m_stableCounter = 0;
-            }
-
-            // 如果数据持续稳定一段时间，强制更新显示范围
-            if (m_dataStable && m_stableCounter
-                >=
-                m_config.stableStateCountThreshold
-            ) {
-                // 使用稳定数据范围强制更新显示范围
-                m_dataMin = m_stableMin;
-                m_dataMax = m_stableMax;
-                m_stableCounter = 0; // 重置计数器，避免频繁更新
-
-                // qDebug() << "检测到数据稳定，强制更新量程:" << m_stableMin << "到" << m_stableMax;
-                return true;
-            }
-
-            return false;
+            // 计算美观范围并设置为目标和当前范围
+            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount);
+            m_targetMin = niceMin;
+            m_targetMax = niceMax;
+            m_currentMin = niceMin;
+            m_currentMax = niceMax;
         }
 
+        // 更新目标范围
+        void updateTargetRange(float dataMin, float dataMax) {
+            // 添加缓冲区
+            float range = std::max(0.001f, dataMax - dataMin);
+            float buffer = range * m_config.bufferRatio;
 
-        // 优化的显示范围计算
-        std::pair<float, float> calculateDisplayRange(bool forceUpdate, bool fastShrink = false) {
-            // 先检查小数据情况 - 在任何其他处理之前
-            float dataRange = m_dataMax - m_dataMin;
-            if (m_config.enableTinyDataFixedRange && dataRange < m_config.tinyDataRangeThreshold) {
-                // 计算范围中心
-                float center = (m_dataMin + m_dataMax) / 2.0f;
-                // 计算固定量程的一半
-                float halfRange = m_config.tinyDataFixedRange / 2.0f;
-                // 如果全部是正数据，确保下限不小于0
-                if (m_dataMin >= 0 && center - halfRange < 0) {
-                    return calculateNiceRange(0.0f, m_config.tinyDataFixedRange, m_config.targetTickCount);
-                }
-                // 返回以中心为基准的固定量程
-                return calculateNiceRange(center - halfRange, center + halfRange, m_config.targetTickCount);
-            }
+            // 对于正数范围，确保最小值不会为负
+            float min = (dataMin >= 0) ? std::max(0.0f, dataMin - buffer) : dataMin - buffer;
+            float max = dataMax + buffer;
 
-            // 当前显示范围
-            float currentRange = m_displayMax - m_displayMin;
-
-            // 检查数据是否超出当前显示范围
-            bool dataOutOfRange = m_dataMin < m_displayMin || m_dataMax > m_displayMax;
-
-            if (forceUpdate || dataOutOfRange) {
-                // 需要扩展范围
-                float expandedMin = m_dataMin;
-                float expandedMax = m_dataMax;
-
-                // 对于小范围数据，使用更小的缓冲区
-                float bufferRatio = (dataRange < 10.0f) ? 0.05f : m_config.expandPaddingRatio;
-
-                // 添加缓冲区
-                float buffer = dataRange * bufferRatio;
-
-                // 对于正数范围，确保最小值不会因缓冲区变为负数
-                if (m_dataMin >= 0) {
-                    expandedMin = std::max(0.0f, m_dataMin - buffer * m_config.minValuePaddingRatio);
-                } else {
-                    expandedMin = m_dataMin - buffer * m_config.minValuePaddingRatio;
-                }
-
-                expandedMax = m_dataMax + buffer * m_config.maxValuePaddingRatio;
-                // 特殊处理：对于较大的正数范围，保持最小值接近数据最小值
-                if (m_dataMin > 1000.0f && m_dataMax > 1000.0f) {
-                    // 不要让最小值太远离数据最小值
-                    expandedMin = m_dataMin - dataRange * 0.05f;
-                }
-
-                // 计算美观范围
-                return calculateNiceRange(expandedMin, expandedMax, m_config.targetTickCount);
-            } else {
-                // 检测是否应该收缩范围
-                float usageRatio = dataRange / currentRange;
-                float dataUnderUtilizationThreshold = m_config.dataUnderUtilizationThreshold;
-
-                // 如果检测到范围突变，使用更积极的收缩阈值
-                if (fastShrink) {
-                    dataUnderUtilizationThreshold = 0.1f; // 更积极的收缩阈值
-                }
-
-                if (usageRatio < (1.0f - dataUnderUtilizationThreshold) ||
-                    (m_allPositiveData && m_displayMin < 0)) {
-                    // 基本收缩速度
-                    float shrinkStep = m_config.normalShrinkSpeed;
-
-                    // 计算当前范围与数据范围的差异比例
-                    float rangeDiffRatio = currentRange / (dataRange > 0.001f ? dataRange : 0.001f);
-
-                    // 如果差异很大或者是快速收缩模式，使用更积极的收缩速度
-                    if (rangeDiffRatio > 3.0f || fastShrink) {
-                        // 差异越大，收缩越快，但不超过最大速度
-                        shrinkStep = std::min(m_config.maxShrinkSpeed,
-                                              shrinkStep * std::min(3.0f, rangeDiffRatio / 2.0f));
-
-                        if (fastShrink) {
-                            // 快速收缩模式时使用更激进的收缩步长
-                            shrinkStep = std::min(0.5f, shrinkStep * 3.0f);
-                            // qDebug() << "使用快速收缩步长:" << shrinkStep;
-                        } else {
-                            // qDebug() << "数据范围差异大，使用加速收缩步长:" << shrinkStep;
-                        }
-                    }
-
-                    // 目标范围
-                    float targetMin = m_dataMin;
-
-                    // 当数据全为正值且配置启用了强制零最小值，强制目标最小值为0
-                    if (m_allPositiveData && m_config
-                        .
-                        forceZeroMinForPositiveOnly
-                    ) {
-                        targetMin = 0.0f;
-                        // qDebug() << "检测到全正值数据，强制目标最小值为0";
-                    }
-                    // 对于正数范围，确保最小值不会变为负数
-                    else if (m_dataMin >= 0) {
-                        targetMin = std::max(0.0f, targetMin);
-                    }
-
-                    float targetMax = m_dataMax + dataRange * m_config.maxValuePaddingRatio;
-
-                    // 计算新范围
-                    float newMin = m_displayMin + (targetMin - m_displayMin) * shrinkStep;
-                    float newMax = m_displayMax + (targetMax - m_displayMax) * shrinkStep;
-
-                    // 对于全正值数据，如果计算出的新最小值仍然为负，直接调整为0
-                    if (m_allPositiveData && newMin < 0) {
-                        newMin = 0.0f;
-                    }
-
-                    // 计算美观范围
-                    return calculateNiceRange(newMin, newMax, m_config.targetTickCount);
-                }
-            }
-
-            // 默认返回当前范围
-            return {m_displayMin, m_displayMax};
+            // 计算美观范围并设置为目标范围
+            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount);
+            m_targetMin = niceMin;
+            m_targetMax = niceMax;
         }
 
-        // 检查范围是否发生显著变化
-        bool isRangeChangedSignificantly(float oldMin, float oldMax,
-                                         float newMin, float newMax,
-                                         bool forceUpdate) {
-            // 如果强制更新，则始终返回true
+        // 平滑更新当前范围，接受平滑因子参数
+        void smoothUpdateCurrentRange(float smoothFactor = -1.0f) {
+            qDebug() << "平滑更新当前范围:" << m_currentMin << "-" << m_currentMax;
+            // 如果未指定平滑因子，使用默认值
+
+            if (smoothFactor < 0.0f) {
+                // 根据是扩大还是缩小选择不同的平滑因子
+                bool isExpanding = (m_targetMax > m_currentMax) || (m_targetMin < m_currentMin);
+                smoothFactor = isExpanding ? m_config.expandSmoothFactor : m_config.shrinkSmoothFactor;
+            }
+
+            // 使用平滑系数更新当前范围
+            m_currentMin += (m_targetMin - m_currentMin) * smoothFactor;
+            m_currentMax += (m_targetMax - m_currentMax) * smoothFactor;
+
+#ifdef DEBUG
+        // 保存调试信息
+        float targetRange  = m_targetMax - m_targetMin;
+        float currentRange = m_currentMax - m_currentMin;
+        float rangeDiff    = std::abs(targetRange - currentRange) / std::max(0.001f, targetRange);
+
+        当差距较大时输出调试信息
+        if (rangeDiff > 0.1f) {
+            qDebug() << "范围更新: 当前" << m_currentMin << "-" << m_currentMax << " 目标" << m_targetMin << "-"
+                     << m_targetMax << " 平滑因子" << smoothFactor;
+        }
+#endif
+
+            // 确保当前范围仍是美观范围
+            auto [niceMin, niceMax] = calculateNiceRange(m_currentMin, m_currentMax, m_config.targetTickCount);
+            m_currentMin = niceMin;
+            m_currentMax = niceMax;
+        }
+
+        // 判断范围是否发生显著变化
+        bool isSignificantChange(float oldMin, float oldMax, bool forceUpdate = false) {
             if (forceUpdate) {
                 return true;
             }
+            // 计算变化比例
+            float oldRange = std::max(0.001f, oldMax - oldMin);
+            float minDiff = std::abs(m_currentMin - oldMin) / oldRange;
+            float maxDiff = std::abs(m_currentMax - oldMax) / oldRange;
 
-            // 计算范围变化比例
-            float oldRange = oldMax - oldMin;
-            float newRange = newMax - newMin;
-
-            // 避免除以零
-            if (oldRange < 0.001f) {
-                oldRange = 0.001f;
-            }
-
-            float rangeChangeRatio = std::abs(newRange - oldRange) / oldRange;
-
-            // 检查最小值和最大值的变化
-            float minChangeRatio = std::abs(newMin - oldMin) / oldRange;
-            float maxChangeRatio = std::abs(newMax - oldMax) / oldRange;
-
-            // 如果范围变化比例或最小值/最大值变化比例超过阈值，则认为范围发生了显著变化
-            return rangeChangeRatio > m_config.minRangeUpdateThreshold ||
-                   minChangeRatio > m_config.minRangeUpdateThreshold ||
-                   maxChangeRatio > m_config.minRangeUpdateThreshold;
+            // 任一端点变化超过5%即认为是显著变化
+            return minDiff > 0.05f || maxDiff > 0.05f;
         }
 
-        // 数据范围
-        float m_dataMin = 0.0f;
-        float m_dataMax = 0.0f;
-
-        // 显示范围
-        float m_displayMin = 0.0f;
-        float m_displayMax = 0.0f;
-
+    private:
         // 配置参数
         DynamicRangeConfig m_config;
-
-        // 状态标志
-        bool m_rangeInitialized = false;
-
-        // 用于稳定性检测
-        std::deque<std::pair<float, float> > m_recentRanges;
-        bool m_dataStable = false;
-        int m_stableCounter = 0;
-        float m_stableMin = 0.0f;
-        float m_stableMax = 0.0f;
-
-        // 计数器
-        int m_updateCounter = 0;
-        int m_resetCounter = 0;
-
-        // 全正值数据跟踪
-        int m_consecutivePositiveDataCount = 0;
-        bool m_allPositiveData = false;
     };
 } // namespace ProGraphics
