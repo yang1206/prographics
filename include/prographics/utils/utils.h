@@ -281,8 +281,8 @@ namespace ProGraphics {
                                   maxValuePaddingRatio(0.01f), // 最大值添加1%缓冲区
 
                                   // 收缩速度控制
-                                  normalShrinkSpeed(0.05f), // 普通收缩速度5%
-                                  maxShrinkSpeed(0.2f), // 最大收缩速度20%
+                                  normalShrinkSpeed(0.15f), // 普通收缩速度5%
+                                  maxShrinkSpeed(0.35f), // 最大收缩速度20%
 
                                   // 小数据范围特殊处理
                                   tinyDataRangeThreshold(1.0f), // 范围小于1.0使用固定量程
@@ -291,7 +291,7 @@ namespace ProGraphics {
 
                                   // 更新频率控制
                                   dataUpdateThrottleCount(10), // 每10次数据更新处理一次
-                                  periodicRangeCheckCount(50), // 每50次更新强制检查一次
+                                  periodicRangeCheckCount(20), // 每50次更新强制检查一次
 
                                   // 全正值数据处理
                                   forceZeroMinForPositiveOnly(false), // 默认不强制全正值数据从0开始
@@ -336,6 +336,40 @@ namespace ProGraphics {
             auto [minIt, maxIt] = std::minmax_element(newData.begin(), newData.end());
             float newMin = *minIt;
             float newMax = *maxIt;
+            float newRange = newMax - newMin;
+
+            // 检测数据范围突变 - 新增代码
+            static float lastMaxRange = 0.0f;
+            bool suddenRangeDecrease = false;
+
+            if (m_rangeInitialized && lastMaxRange > 0.0f) {
+                // 如果新数据范围显著小于历史最大范围（如缩小到30%或更少）
+                float currentDisplayRange = m_displayMax - m_displayMin;
+                if (newRange < currentDisplayRange * 0.3f &&
+                    newMax < m_displayMax * 0.7f && // 确保最大值也显著减小
+                    m_recentRanges.size() >= 3) {
+                    // 确保有足够历史数据
+
+                    // 检查最近几次的数据是否都在较小范围内
+                    bool allRecentSmall = true;
+                    for (size_t i = m_recentRanges.size() - 3; i < m_recentRanges.size(); i++) {
+                        if (m_recentRanges[i].second - m_recentRanges[i].first > newRange * 1.5f) {
+                            allRecentSmall = false;
+                            break;
+                        }
+                    }
+
+                    if (allRecentSmall) {
+                        suddenRangeDecrease = true;
+                        // qDebug() << "检测到数据范围显著缩小:"
+                        //         << "当前:" << newMin << "-" << newMax
+                        //         << "显示:" << m_displayMin << "-" << m_displayMax;
+                    }
+                }
+            }
+
+            // 更新历史最大范围
+            lastMaxRange = std::max(lastMaxRange, m_displayMax - m_displayMin);
 
             // 检查数据是否全为正值
             bool currentDataAllPositive = true;
@@ -372,7 +406,7 @@ namespace ProGraphics {
 
                 // 先检查是否为小数据情况
                 if (m_config.enableTinyDataFixedRange && dataRange < m_config.tinyDataRangeThreshold) {
-                    qDebug() << "初始化检测到小数据:" << newMin << "到" << newMax;
+                    // qDebug() << "初始化检测到小数据:" << newMin << "到" << newMax;
                     // 计算范围中心
                     float center = (newMin + newMax) / 2.0f;
                     // 计算固定量程的一半
@@ -435,7 +469,8 @@ namespace ProGraphics {
             bool dataOutOfRange = newMin < m_displayMin || newMax > m_displayMax;
 
             // 周期性范围检查或强制更新或数据超出范围
-            if (++m_resetCounter % m_config.periodicRangeCheckCount == 0 || forceUpdate || dataOutOfRange) {
+            if (++m_resetCounter % m_config.periodicRangeCheckCount == 0 ||
+                forceUpdate || dataOutOfRange || suddenRangeDecrease) {
                 m_resetCounter = 0;
 
                 // 确保数据范围有效
@@ -443,8 +478,11 @@ namespace ProGraphics {
                     std::swap(m_dataMin, m_dataMax);
                 }
 
+                // 如果是突然范围减小，可以额外设置一个加速因子
+                bool fastShrink = suddenRangeDecrease;
+
                 // 计算新的显示范围
-                auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(forceUpdate || dataOutOfRange);
+                auto [newDisplayMin, newDisplayMax] = calculateDisplayRange(forceUpdate || dataOutOfRange, fastShrink);
 
                 // 检查显示范围是否发生显著变化
                 bool rangeChanged = isRangeChangedSignificantly(oldDisplayMin, oldDisplayMax,
@@ -555,7 +593,7 @@ namespace ProGraphics {
 
 
         // 优化的显示范围计算
-        std::pair<float, float> calculateDisplayRange(bool forceUpdate) {
+        std::pair<float, float> calculateDisplayRange(bool forceUpdate, bool fastShrink = false) {
             // 先检查小数据情况 - 在任何其他处理之前
             float dataRange = m_dataMax - m_dataMin;
             if (m_config.enableTinyDataFixedRange && dataRange < m_config.tinyDataRangeThreshold) {
@@ -607,25 +645,40 @@ namespace ProGraphics {
             } else {
                 // 检测是否应该收缩范围
                 float usageRatio = dataRange / currentRange;
+                float dataUnderUtilizationThreshold = m_config.dataUnderUtilizationThreshold;
 
-                if (usageRatio < (1.0f - m_config.dataUnderUtilizationThreshold) ||
+                // 如果检测到范围突变，使用更积极的收缩阈值
+                if (fastShrink) {
+                    dataUnderUtilizationThreshold = 0.1f; // 更积极的收缩阈值
+                }
+
+                if (usageRatio < (1.0f - dataUnderUtilizationThreshold) ||
                     (m_allPositiveData && m_displayMin < 0)) {
-                    // 注意这个新条件
+                    // 基本收缩速度
+                    float shrinkStep = m_config.normalShrinkSpeed;
 
-                    // 对于小范围数据，使用更保守的收缩
-                    float shrinkStep = (dataRange < 10.0f) ? 0.02f : m_config.normalShrinkSpeed;
+                    // 计算当前范围与数据范围的差异比例
+                    float rangeDiffRatio = currentRange / (dataRange > 0.001f ? dataRange : 0.001f);
 
-                    // 如果数据全为正值且当前显示范围包含负值，使用更积极的收缩步长
-                    if (m_allPositiveData && m_displayMin < 0) {
-                        shrinkStep = std::max(shrinkStep, m_config.positiveOnlyShrinkAcceleration);
-                        qDebug() << "检测到全正值数据，使用积极收缩步长:" << shrinkStep;
+                    // 如果差异很大或者是快速收缩模式，使用更积极的收缩速度
+                    if (rangeDiffRatio > 3.0f || fastShrink) {
+                        // 差异越大，收缩越快，但不超过最大速度
+                        shrinkStep = std::min(m_config.maxShrinkSpeed,
+                                              shrinkStep * std::min(3.0f, rangeDiffRatio / 2.0f));
+
+                        if (fastShrink) {
+                            // 快速收缩模式时使用更激进的收缩步长
+                            shrinkStep = std::min(0.5f, shrinkStep * 3.0f);
+                            qDebug() << "使用快速收缩步长:" << shrinkStep;
+                        } else {
+                            qDebug() << "数据范围差异大，使用加速收缩步长:" << shrinkStep;
+                        }
                     }
 
                     // 目标范围
                     float targetMin = m_dataMin;
 
                     // 当数据全为正值且配置启用了强制零最小值，强制目标最小值为0
-
                     if (m_allPositiveData && m_config
                         .
                         forceZeroMinForPositiveOnly

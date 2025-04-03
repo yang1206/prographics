@@ -144,7 +144,7 @@ std::vector<float> MainWindow::generateRandomAmplitudePattern() const {
         initialized = true;
     }
 
-    const int rangeDurationMs = 2000;
+    const int rangeDurationMs = 7000;
     int elapsedSecs = rangeTimer.elapsed() / rangeDurationMs;
     int newRangeIndex = elapsedSecs % (sizeof(ranges) / sizeof(ranges[0]));
 
