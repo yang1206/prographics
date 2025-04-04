@@ -147,8 +147,8 @@ namespace ProGraphics {
     }
 
     // 优化的范围计算函数
-    inline std::pair<float, float> calculateNiceRange(float min, float max, int targetTickCount = 6,
-                                                      bool enforcePositiveRange = true) {
+    inline std::pair<float, float>
+    calculateNiceRange(float min, float max, int targetTickCount = 6, bool enforcePositiveRange = true) {
         // 处理特殊情况
         if (min > max) {
             std::swap(min, max);
@@ -161,7 +161,6 @@ namespace ProGraphics {
             range = 0.001f;
             max = min + range;
         }
-
 
         // 计算刻度步长
         float niceStep = calculateNiceTickStep(range, targetTickCount);
@@ -198,9 +197,14 @@ namespace ProGraphics {
         float m_targetMin = 0.0f;
         float m_targetMax = 0.0f;
 
-
         // 状态标志
         bool m_initialized = false;
+
+        // 数据平滑相关
+        std::deque<std::pair<float, float> > m_recentDataRanges; // 记录最近的数据范围
+        int m_stableRangeCounter = 0; // 稳定范围计数器
+        std::pair<float, float> m_lastSignificantRange = {0, 0}; // 上次显著更新的数据范围
+        int m_rangeLockCooldown = 0; // 范围锁定冷却时间
 
     public:
         struct DynamicRangeConfig {
@@ -224,22 +228,35 @@ namespace ProGraphics {
             float significantChangeThreshold; // 显著变化的阈值
             bool enforcePositiveRangeForPositiveData; // 是否强制正数据使用正范围
 
+            //==================== 波动控制 ====================
+            int dataHistoryLength; // 保留最近数据范围的数量
+            int stabilityThreshold; // 范围保持稳定的计数阈值
+            int changeConfirmationCount; // 确认范围变化的持续帧数
+            int rangeLockTime; // 范围锁定时间(帧数)
+            bool useHistoricalRange; // 是否使用历史数据平均范围
+            float outlierThreshold; // 异常值检测阈值（倍数）
+
             DynamicRangeConfig()
                 : expandThreshold(0.0f), // 任何超出都立即扩展
                   shrinkThreshold(0.1f), // 使用不足70%时收缩
                   significantShrinkRatio(0.20f), // 缩小到1/4视为显著
                   bufferRatio(0.01f), // 添加10%的缓冲区
-                  updateInterval(10), // 每5帧检查一次
+                  updateInterval(5), // 每5帧检查一次
                   targetTickCount(6), // 6个刻度
                   expandSmoothFactor(0.1f), // 扩大时平滑移动20%
                   shrinkSmoothFactor(0.3f), // 收缩时平滑移动30%
-                  fastShrinkFactor(0.8f), // 显著缩小时加速到60%
+                  fastShrinkFactor(0.6f), // 显著缩小时加速到60%
                   maxRangeExtensionRatio(1.3f), // 最大扩展范围为数据范围的1.3倍
                   dataUsageThreshold(0.4f), // 数据使用率低于40%视为低使用
                   maxDataRatio(0.7f), // 数据最大值低于当前最大值70%视为显著缩小
                   significantChangeThreshold(0.03f), // 3%的变化视为显著
-                  enforcePositiveRangeForPositiveData(true) // 默认强制正数据使用正范围
-
+                  enforcePositiveRangeForPositiveData(true), // 默认强制正数据使用正范围
+                  dataHistoryLength(20), // 保留最近50帧的数据范围
+                  stabilityThreshold(10), // 15帧内范围变化不大视为稳定
+                  changeConfirmationCount(5), // 需要连续5帧确认范围变化
+                  rangeLockTime(20), // 范围锁定30帧
+                  useHistoricalRange(true), // 默认使用历史平均范围
+                  outlierThreshold(1.5f) // 超过平均值2.5倍视为异常值
             {
             }
         };
@@ -271,92 +288,129 @@ namespace ProGraphics {
             float oldMin = m_currentMin;
             float oldMax = m_currentMax;
 
+            // 添加当前数据范围到历史记录
+            m_recentDataRanges.push_back({dataMin, dataMax});
+            if (m_recentDataRanges.size() > m_config.dataHistoryLength) {
+                m_recentDataRanges.pop_front();
+            }
 
-            // 2. 首次初始化
+            // 2. 检查范围锁定冷却时间
+            if (m_rangeLockCooldown > 0) {
+                m_rangeLockCooldown--;
+                // 在冷却期间只处理范围扩展，不处理范围收缩
+                if (dataMin < m_currentMin || dataMax > m_currentMax) {
+                    updateTargetRange(dataMin, dataMax);
+                    smoothUpdateCurrentRange(m_config.expandSmoothFactor);
+                    return isSignificantChange(oldMin, oldMax);
+                }
+                return false;
+            }
+
+            // 3. 首次初始化
             if (!m_initialized) {
                 initializeRange(dataMin, dataMax);
                 m_initialized = true;
+                m_lastSignificantRange = {dataMin, dataMax};
                 return true;
             }
 
-            // 3. 数据超出当前范围时立即更新
-            if (dataMin < m_currentMin || dataMax > m_currentMax) {
-                updateTargetRange(dataMin, dataMax);
+            // 4. 计算历史数据的平均范围和标准差
+            std::pair<float, float> avgRange = calculateAverageRange();
+            std::pair<float, float> stdevRange = calculateRangeStandardDeviation(avgRange);
 
-                // 使用扩展平滑因子
-                float smoothFactor = m_config.expandSmoothFactor;
-                smoothUpdateCurrentRange(smoothFactor);
+            // 5. 检测当前数据是否为异常值
+            bool isOutlier = isDataOutlier(dataMin, dataMax, avgRange, stdevRange);
 
-                return isSignificantChange(oldMin, oldMax);
+            // 如果是异常值且范围已经稳定，则可能暂时忽略
+            if (isOutlier && m_stableRangeCounter > m_config.stabilityThreshold) {
+                // 处理异常值：仅当异常值扩大范围时才立即响应
+                if (dataMin < m_currentMin || dataMax > m_currentMax) {
+                    updateTargetRange(dataMin, dataMax);
+                    smoothUpdateCurrentRange(m_config.expandSmoothFactor * 0.5f); // 使用较小的平滑因子
+                    return isSignificantChange(oldMin, oldMax);
+                }
+                // 否则暂时忽略异常值
+                return false;
             }
 
-            // 4. 周期性检查量程是否需要更新
+            // 6. 数据超出当前范围时
+            if (dataMin < m_currentMin || dataMax > m_currentMax) {
+                // 检查是否为持续性变化或者突发峰值
+                if (isConsistentChange(dataMin, dataMax)) {
+                    // 持续性变化，正常更新
+                    updateTargetRange(m_config.useHistoricalRange ? avgRange.first : dataMin,
+                                      m_config.useHistoricalRange ? avgRange.second : dataMax);
+                    smoothUpdateCurrentRange(m_config.expandSmoothFactor);
+                    m_lastSignificantRange = {dataMin, dataMax};
+                    m_stableRangeCounter = 0;
+                    return isSignificantChange(oldMin, oldMax);
+                } else {
+                    // 可能是突发峰值，使用较小的平滑因子
+                    updateTargetRange(dataMin, dataMax);
+                    smoothUpdateCurrentRange(m_config.expandSmoothFactor * 0.3f);
+                    return isSignificantChange(oldMin, oldMax);
+                }
+            }
+
+            // 7. 周期性检查量程是否需要更新
             if (++m_frameCounter % m_config.updateInterval != 0) {
+                // 即使不是周期检查点，也增加稳定计数器
+                if (isRangeStable(avgRange)) {
+                    m_stableRangeCounter++;
+                } else {
+                    m_stableRangeCounter = 0;
+                }
                 return false;
             }
             m_frameCounter = 0;
 
-            // 5. 检查数据范围与当前量程的差距
-            float dataRange = dataMax - dataMin;
+            // 8. 检查数据范围与当前量程的差距
+            float dataRange = m_config.useHistoricalRange ? (avgRange.second - avgRange.first) : (dataMax - dataMin);
             float currentRange = m_currentMax - m_currentMin;
             float usageRatio = dataRange / currentRange;
 
-            // 数据显著小于当前范围时加速收缩判断
-            if (usageRatio < m_config.dataUsageThreshold && dataMax < m_currentMax * m_config.maxDataRatio) {
-                // 向目标迅速收缩
-                updateTargetRange(dataMin, dataMax);
+            // 9. 稳定性检查：如果范围一直稳定，考虑收缩
+            bool canShrink = m_stableRangeCounter >= m_config.stabilityThreshold;
 
-                // 使用加速收缩因子
-                float acceleratedShrinkFactor = m_config.fastShrinkFactor * 1.5f;
-                smoothUpdateCurrentRange(acceleratedShrinkFactor);
+            // 数据显著小于当前范围且已经稳定一段时间，才考虑收缩
+            if (canShrink && usageRatio < m_config.dataUsageThreshold &&
+                (m_config.useHistoricalRange ? avgRange.second : dataMax) < m_currentMax * m_config.maxDataRatio) {
+                // 确认是持续性变化，而不是临时波动
+                if (isConsistentChange(m_config.useHistoricalRange ? avgRange.first : dataMin,
+                                       m_config.useHistoricalRange ? avgRange.second : dataMax)) {
+                    // 向目标迅速收缩
+                    updateTargetRange(m_config.useHistoricalRange ? avgRange.first : dataMin,
+                                      m_config.useHistoricalRange ? avgRange.second : dataMax);
 
-                // 检查范围变化并返回
-                bool changed = isSignificantChange(oldMin, oldMax, true); // 强制检查
-                if (changed) {
-                    // qDebug() << "检测到数据显著缩小，加速响应: " << m_currentMin << "-" << m_currentMax;
+                    // 使用适当的收缩因子
+                    float shrinkFactor = m_config.shrinkSmoothFactor;
+                    smoothUpdateCurrentRange(shrinkFactor);
+
+                    // 设置范围锁定冷却时间，避免频繁切换
+                    m_rangeLockCooldown = m_config.rangeLockTime;
+
+                    // 记录显著变化的范围
+                    m_lastSignificantRange = {
+                        m_config.useHistoricalRange ? avgRange.first : dataMin,
+                        m_config.useHistoricalRange ? avgRange.second : dataMax
+                    };
+
+                    m_stableRangeCounter = 0;
+
+                    // 检查范围变化并返回
+                    bool changed = isSignificantChange(oldMin, oldMax);
+                    return changed;
                 }
-                return changed;
             }
 
-            // 判断是否应该收缩量程
-            bool needShrink = false;
-            bool isSignificantShrink = false;
-            bool forceUpdate = false;
-
-            // 判断数据是否显著小于当前范围
-            if (usageRatio < (m_config.dataUsageThreshold - m_config.shrinkThreshold)) {
-                needShrink = true;
-
-                // 检查是否是显著缩小（数据范围比当前显示范围小很多）
-                if (usageRatio < m_config.significantShrinkRatio) {
-                    isSignificantShrink = true;
-                    forceUpdate = true; // 显著缩小时强制更新
-                    // qDebug() << "检测到数据显著缩小: " << usageRatio << "，强制更新量程";
-                }
+            // 增加稳定计数器
+            if (isRangeStable(avgRange)) {
+                m_stableRangeCounter++;
+            } else {
+                m_stableRangeCounter = 0;
             }
 
-            // 6. 需要收缩时，计算新的目标范围
-            if (needShrink) {
-                updateTargetRange(dataMin, dataMax);
-
-                // 根据收缩程度选择平滑因子
-                float smoothFactor = isSignificantShrink ? m_config.fastShrinkFactor : m_config.shrinkSmoothFactor;
-
-                // 显著缩小时输出日志
-#ifdef DEBUG
-            if (isSignificantShrink) {
-                qDebug() << "检测到数据显著缩小: 数据范围" << dataMin << "-" << dataMax << " 占当前显示范围的"
-                         << (usageRatio * 100.0f) << "%"
-                         << " 使用加速收缩因子:" << smoothFactor;
-            }
-#endif
-
-                // 使用选定的平滑因子更新当前范围
-                smoothUpdateCurrentRange(smoothFactor);
-            }
-
-            // 7. 检查范围是否发生显著变化
-            return isSignificantChange(oldMin, oldMax, forceUpdate);
+            return false;
         }
 
         // 获取当前显示范围
@@ -394,8 +448,9 @@ namespace ProGraphics {
             float max = dataMax + buffer;
 
             // 计算美观范围并设置为目标和当前范围
-            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount,
-                                                         m_config.enforcePositiveRangeForPositiveData);
+            auto [niceMin, niceMax] =
+                    calculateNiceRange(min, max, m_config.targetTickCount,
+                                       m_config.enforcePositiveRangeForPositiveData);
             m_targetMin = niceMin;
             m_targetMax = niceMax;
             m_currentMin = niceMin;
@@ -430,12 +485,12 @@ namespace ProGraphics {
             }
 
             // 计算美观范围并设置为目标范围
-            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount,
-                                                         m_config.enforcePositiveRangeForPositiveData);
+            auto [niceMin, niceMax] =
+                    calculateNiceRange(min, max, m_config.targetTickCount,
+                                       m_config.enforcePositiveRangeForPositiveData);
 
             // 检查新范围是否与当前范围接近，避免微小变化触发更新
-            if (std::abs(niceMin - m_targetMin) < 0.0001f &&
-                std::abs(niceMax - m_targetMax) < 0.0001f) {
+            if (std::abs(niceMin - m_targetMin) < 0.0001f && std::abs(niceMax - m_targetMax) < 0.0001f) {
                 return; // 范围几乎相同，不更新目标
             }
 
@@ -472,9 +527,8 @@ namespace ProGraphics {
 #endif
 
             // 确保当前范围仍是美观范围
-            auto [niceMin, niceMax] = calculateNiceRange(m_currentMin, m_currentMax,
-                                                         m_config.targetTickCount,
-                                                         m_config.enforcePositiveRangeForPositiveData);
+            auto [niceMin, niceMax] = calculateNiceRange(
+                m_currentMin, m_currentMax, m_config.targetTickCount, m_config.enforcePositiveRangeForPositiveData);
             m_currentMin = niceMin;
             m_currentMax = niceMax;
         }
@@ -487,8 +541,7 @@ namespace ProGraphics {
 
             // 检查是否完全相同（避免浮点误差的微小差异）
             const float EPSILON = 0.0001f;
-            if (std::abs(m_currentMin - oldMin) < EPSILON &&
-                std::abs(m_currentMax - oldMax) < EPSILON) {
+            if (std::abs(m_currentMin - oldMin) < EPSILON && std::abs(m_currentMax - oldMax) < EPSILON) {
                 return false;
             }
 
@@ -498,8 +551,130 @@ namespace ProGraphics {
             float maxDiff = std::abs(m_currentMax - oldMax) / oldRange;
 
             // 使用配置的显著变化阈值
-            return minDiff > m_config.significantChangeThreshold ||
-                   maxDiff > m_config.significantChangeThreshold;
+            return minDiff > m_config.significantChangeThreshold || maxDiff > m_config.significantChangeThreshold;
+        }
+
+        // 计算最近数据的平均范围
+        std::pair<float, float> calculateAverageRange() {
+            if (m_recentDataRanges.empty()) {
+                return {0.0f, 0.0f};
+            }
+
+            float sumMin = 0.0f, sumMax = 0.0f;
+            for (const auto &range: m_recentDataRanges) {
+                sumMin += range.first;
+                sumMax += range.second;
+            }
+
+            return {sumMin / m_recentDataRanges.size(), sumMax / m_recentDataRanges.size()};
+        }
+
+        // 计算范围的标准差
+        std::pair<float, float> calculateRangeStandardDeviation(const std::pair<float, float> &avgRange) {
+            if (m_recentDataRanges.size() < 2) {
+                return {0.0f, 0.0f};
+            }
+
+            float sumSqDiffMin = 0.0f, sumSqDiffMax = 0.0f;
+            for (const auto &range: m_recentDataRanges) {
+                float diffMin = range.first - avgRange.first;
+                float diffMax = range.second - avgRange.second;
+                sumSqDiffMin += diffMin * diffMin;
+                sumSqDiffMax += diffMax * diffMax;
+            }
+
+            float varianceMin = sumSqDiffMin / (m_recentDataRanges.size() - 1);
+            float varianceMax = sumSqDiffMax / (m_recentDataRanges.size() - 1);
+
+            return {std::sqrt(varianceMin), std::sqrt(varianceMax)};
+        }
+
+        // 检测数据是否为异常值
+        bool isDataOutlier(float dataMin,
+                           float dataMax,
+                           const std::pair<float, float> &avgRange,
+                           const std::pair<float, float> &stdevRange) {
+            // 如果历史数据不够，无法判断
+            if (m_recentDataRanges.size() < 10) {
+                return false;
+            }
+
+            // 计算Z分数 (考虑使用绝对差值代替标准差以处理极端值)
+            float zScoreMin = std::abs(dataMin - avgRange.first) / std::max(0.001f, stdevRange.first);
+            float zScoreMax = std::abs(dataMax - avgRange.second) / std::max(0.001f, stdevRange.second);
+
+            // 使用配置的异常值阈值
+            return zScoreMin > m_config.outlierThreshold || zScoreMax > m_config.outlierThreshold;
+        }
+
+        // 检查范围是否稳定
+        bool isRangeStable(const std::pair<float, float> &avgRange) {
+            if (m_recentDataRanges.size() < 10) {
+                return false;
+            }
+
+            // 计算最近几帧范围的变化程度
+            float recentVariation = 0.0f;
+            int sampleCount = 0;
+
+            // 安全获取最近10帧数据的索引范围
+            size_t startIdx = m_recentDataRanges.size() > 10 ? m_recentDataRanges.size() - 10 : 0;
+
+            // 从最新的数据向前遍历，避免使用可能导致溢出的自减循环
+            for (size_t i = m_recentDataRanges.size(); i > startIdx; i--) {
+                size_t idx = i - 1; // 当前处理的索引
+
+                float minDiff = std::abs(m_recentDataRanges[idx].first - avgRange.first);
+                float maxDiff = std::abs(m_recentDataRanges[idx].second - avgRange.second);
+                float totalRange = std::max(0.001f, avgRange.second - avgRange.first);
+
+                recentVariation += (minDiff + maxDiff) / totalRange;
+                sampleCount++;
+            }
+
+            // 使用实际处理的样本数计算平均变化
+            recentVariation /= sampleCount;
+
+            return recentVariation < 0.1f; // 变化小于10%视为稳定
+        }
+
+        // 检查是否为持续性变化
+        bool isConsistentChange(float dataMin, float dataMax) {
+            if (m_recentDataRanges.size() < m_config.changeConfirmationCount) {
+                return true; // 数据不足时默认为持续变化
+            }
+
+            // 检查最近几帧数据是否都指向同一变化方向
+            int expandCount = 0;
+            int shrinkCount = 0;
+            int processedFrames = 0;
+
+            // 安全计算需要处理的帧数
+            int framesToCheck = std::min(static_cast<int>(m_recentDataRanges.size()), m_config.changeConfirmationCount);
+
+            // 从最新的数据开始向前检查
+            for (int i = 1; i <= framesToCheck; i++) {
+                size_t idx = m_recentDataRanges.size() - i;
+
+                if (m_recentDataRanges[idx].first < m_currentMin || m_recentDataRanges[idx].second > m_currentMax) {
+                    expandCount++;
+                }
+
+                if ((m_recentDataRanges[idx].second - m_recentDataRanges[idx].first) <
+                    (m_currentMax - m_currentMin) * m_config.dataUsageThreshold) {
+                    shrinkCount++;
+                }
+
+                processedFrames++;
+            }
+
+            // 如果是扩大变化，只需要有一定比例的帧超出范围
+            if (dataMin < m_currentMin || dataMax > m_currentMax) {
+                return expandCount >= processedFrames * 0.5f;
+            }
+
+            // 如果是缩小变化，需要大部分帧都表现出缩小趋势
+            return shrinkCount >= processedFrames * 0.8f;
         }
 
     private:
