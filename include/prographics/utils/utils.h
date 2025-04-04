@@ -147,7 +147,8 @@ namespace ProGraphics {
     }
 
     // 优化的范围计算函数
-    inline std::pair<float, float> calculateNiceRange(float min, float max, int targetTickCount = 6) {
+    inline std::pair<float, float> calculateNiceRange(float min, float max, int targetTickCount = 6,
+                                                      bool enforcePositiveRange = true) {
         // 处理特殊情况
         if (min > max) {
             std::swap(min, max);
@@ -161,58 +162,25 @@ namespace ProGraphics {
             max = min + range;
         }
 
+
         // 计算刻度步长
         float niceStep = calculateNiceTickStep(range, targetTickCount);
 
         // 计算美观的最小值（向下取整到最接近的步长倍数）
         float niceMin = std::floor(min / niceStep) * niceStep;
 
-        // 特殊处理：如果原始最小值接近0且为正数，则使用0作为最小值
-        if (min >= 0 && min < niceStep * 0.5f) {
-            niceMin = 0.0f;
+        // 强制全正数据有正下限
+        if (enforcePositiveRange && min >= 0) {
+            niceMin = std::max(0.0f, niceMin);
         }
 
-        // 特殊处理：如果原始最小值为正数，但计算出的美观最小值为负数，则使用0作为最小值
-        if (min > 0 && niceMin < 0) {
-            niceMin = 0.0f;
-        }
-
-        // 特殊处理：对于较大的正数范围，如果最小值远离0，不应该将最小值设为0
-        if (min > 1000.0f && max > 1000.0f) {
-            // 确保最小值不会被强制设为0
-            niceMin = std::floor(min / niceStep) * niceStep;
-        }
-
-        // 计算美观的最大值
-        // 确保范围包含足够的刻度
+        // 计算基础的美观最大值
         float niceMax = niceMin + std::ceil((max - niceMin) / niceStep) * niceStep;
 
-        // 确保至少有targetTickCount个刻度
+        // 确保至少有targetTickCount-1个刻度
         int steps = std::round((niceMax - niceMin) / niceStep);
-        if (steps < targetTickCount) {
-            // 对于小范围数据，尝试减小步长而不是扩大范围
-            if (range < 10.0f && steps >= targetTickCount - 1) {
-                // 如果只差一个刻度，尝试减小步长
-                float smallerStep = niceStep * 0.5f;
-                if (smallerStep > 0) {
-                    steps = std::round((niceMax - niceMin) / smallerStep);
-                    if (steps >= targetTickCount) {
-                        return {niceMin, niceMax}; // 使用更小的步长
-                    }
-                }
-            }
-            // 特殊处理：对于小范围数据，尝试使用更紧凑的范围
-            if (range < 5.0f && max <= 2.0f) {
-                // 对于[0, 1.5]这样的范围，尝试使用[0, 2.0]而不是[0, 2.5]
-                if (niceMin == 0.0f && niceMax > max * 1.5f) {
-                    // 找到一个更合适的最大值
-                    float betterMax = std::ceil(max * 1.2f / niceStep) * niceStep;
-                    if (betterMax >= max && (betterMax - niceMin) / niceStep >= targetTickCount - 1) {
-                        niceMax = betterMax;
-                    }
-                }
-            }
-            niceMax = niceMin + targetTickCount * niceStep;
+        if (steps < targetTickCount - 1) {
+            niceMax = niceMin + (targetTickCount - 1) * niceStep;
         }
 
         return {niceMin, niceMax};
@@ -249,6 +217,13 @@ namespace ProGraphics {
             float shrinkSmoothFactor; // 范围收缩时的平滑系数 (0.3表示每次向目标移动30%)
             float fastShrinkFactor; // 显著缩小时的加速系数 (0.6表示加速到60%每次)
 
+            //==================== 范围控制 ====================
+            float maxRangeExtensionRatio; // 最大范围扩展比例
+            float dataUsageThreshold; // 数据使用率阈值，低于此值视为低使用率
+            float maxDataRatio; // 数据最大值比例，低于此值视为显著缩小
+            float significantChangeThreshold; // 显著变化的阈值
+            bool enforcePositiveRangeForPositiveData; // 是否强制正数据使用正范围
+
             DynamicRangeConfig()
                 : expandThreshold(0.0f), // 任何超出都立即扩展
                   shrinkThreshold(0.1f), // 使用不足70%时收缩
@@ -257,8 +232,14 @@ namespace ProGraphics {
                   updateInterval(10), // 每5帧检查一次
                   targetTickCount(6), // 6个刻度
                   expandSmoothFactor(0.1f), // 扩大时平滑移动20%
-                  shrinkSmoothFactor(0.2f), // 收缩时平滑移动30%
-                  fastShrinkFactor(0.6f) // 显著缩小时加速到60%
+                  shrinkSmoothFactor(0.3f), // 收缩时平滑移动30%
+                  fastShrinkFactor(0.8f), // 显著缩小时加速到60%
+                  maxRangeExtensionRatio(1.3f), // 最大扩展范围为数据范围的1.3倍
+                  dataUsageThreshold(0.4f), // 数据使用率低于40%视为低使用
+                  maxDataRatio(0.7f), // 数据最大值低于当前最大值70%视为显著缩小
+                  significantChangeThreshold(0.03f), // 3%的变化视为显著
+                  enforcePositiveRangeForPositiveData(true) // 默认强制正数据使用正范围
+
             {
             }
         };
@@ -290,6 +271,7 @@ namespace ProGraphics {
             float oldMin = m_currentMin;
             float oldMax = m_currentMax;
 
+
             // 2. 首次初始化
             if (!m_initialized) {
                 initializeRange(dataMin, dataMax);
@@ -319,13 +301,30 @@ namespace ProGraphics {
             float currentRange = m_currentMax - m_currentMin;
             float usageRatio = dataRange / currentRange;
 
+            // 数据显著小于当前范围时加速收缩判断
+            if (usageRatio < m_config.dataUsageThreshold && dataMax < m_currentMax * m_config.maxDataRatio) {
+                // 向目标迅速收缩
+                updateTargetRange(dataMin, dataMax);
+
+                // 使用加速收缩因子
+                float acceleratedShrinkFactor = m_config.fastShrinkFactor * 1.5f;
+                smoothUpdateCurrentRange(acceleratedShrinkFactor);
+
+                // 检查范围变化并返回
+                bool changed = isSignificantChange(oldMin, oldMax, true); // 强制检查
+                if (changed) {
+                    // qDebug() << "检测到数据显著缩小，加速响应: " << m_currentMin << "-" << m_currentMax;
+                }
+                return changed;
+            }
+
             // 判断是否应该收缩量程
             bool needShrink = false;
             bool isSignificantShrink = false;
-            bool forceUpdate = false; // 新增变量
+            bool forceUpdate = false;
 
             // 判断数据是否显著小于当前范围
-            if (usageRatio < (1.0f - m_config.shrinkThreshold)) {
+            if (usageRatio < (m_config.dataUsageThreshold - m_config.shrinkThreshold)) {
                 needShrink = true;
 
                 // 检查是否是显著缩小（数据范围比当前显示范围小很多）
@@ -389,11 +388,14 @@ namespace ProGraphics {
             float buffer = range * m_config.bufferRatio;
 
             // 对于正数范围，确保最小值不会为负
-            float min = (dataMin >= 0) ? std::max(0.0f, dataMin - buffer) : dataMin - buffer;
+            float min = (dataMin >= 0 && m_config.enforcePositiveRangeForPositiveData)
+                            ? std::max(0.0f, dataMin - buffer)
+                            : dataMin - buffer;
             float max = dataMax + buffer;
 
             // 计算美观范围并设置为目标和当前范围
-            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount);
+            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount,
+                                                         m_config.enforcePositiveRangeForPositiveData);
             m_targetMin = niceMin;
             m_targetMax = niceMax;
             m_currentMin = niceMin;
@@ -402,23 +404,48 @@ namespace ProGraphics {
 
         // 更新目标范围
         void updateTargetRange(float dataMin, float dataMax) {
-            // 添加缓冲区
+            // 添加缓冲区，但限制缓冲区大小
             float range = std::max(0.001f, dataMax - dataMin);
-            float buffer = range * m_config.bufferRatio;
+            float buffer = std::min(range * m_config.bufferRatio, range * 0.1f);
 
             // 对于正数范围，确保最小值不会为负
-            float min = (dataMin >= 0) ? std::max(0.0f, dataMin - buffer) : dataMin - buffer;
+            float min = (dataMin >= 0 && m_config.enforcePositiveRangeForPositiveData)
+                            ? std::max(0.0f, dataMin - buffer)
+                            : dataMin - buffer;
             float max = dataMax + buffer;
 
+            // 计算当前数据使用率
+            float currentDataRange = dataMax - dataMin;
+            float currentDisplayRange = m_currentMax - m_currentMin;
+            float usageRatio = currentDataRange / currentDisplayRange;
+
+            // 如果数据使用率很低，加速缩小目标范围
+            if (usageRatio < m_config.dataUsageThreshold && dataMax < m_currentMax * m_config.maxDataRatio) {
+                // 直接使用较小的缓冲区计算新范围
+                buffer = buffer * 0.5f; // 减小缓冲区
+                max = dataMax + buffer;
+                min = (dataMin >= 0 && m_config.enforcePositiveRangeForPositiveData)
+                          ? std::max(0.0f, dataMin - buffer)
+                          : dataMin - buffer;
+            }
+
             // 计算美观范围并设置为目标范围
-            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount);
+            auto [niceMin, niceMax] = calculateNiceRange(min, max, m_config.targetTickCount,
+                                                         m_config.enforcePositiveRangeForPositiveData);
+
+            // 检查新范围是否与当前范围接近，避免微小变化触发更新
+            if (std::abs(niceMin - m_targetMin) < 0.0001f &&
+                std::abs(niceMax - m_targetMax) < 0.0001f) {
+                return; // 范围几乎相同，不更新目标
+            }
+
             m_targetMin = niceMin;
             m_targetMax = niceMax;
         }
 
         // 平滑更新当前范围，接受平滑因子参数
         void smoothUpdateCurrentRange(float smoothFactor = -1.0f) {
-            qDebug() << "平滑更新当前范围:" << m_currentMin << "-" << m_currentMax;
+            // qDebug() << "平滑更新当前范围:" << m_currentMin << "-" << m_currentMax;
             // 如果未指定平滑因子，使用默认值
 
             if (smoothFactor < 0.0f) {
@@ -445,7 +472,9 @@ namespace ProGraphics {
 #endif
 
             // 确保当前范围仍是美观范围
-            auto [niceMin, niceMax] = calculateNiceRange(m_currentMin, m_currentMax, m_config.targetTickCount);
+            auto [niceMin, niceMax] = calculateNiceRange(m_currentMin, m_currentMax,
+                                                         m_config.targetTickCount,
+                                                         m_config.enforcePositiveRangeForPositiveData);
             m_currentMin = niceMin;
             m_currentMax = niceMax;
         }
@@ -455,13 +484,22 @@ namespace ProGraphics {
             if (forceUpdate) {
                 return true;
             }
+
+            // 检查是否完全相同（避免浮点误差的微小差异）
+            const float EPSILON = 0.0001f;
+            if (std::abs(m_currentMin - oldMin) < EPSILON &&
+                std::abs(m_currentMax - oldMax) < EPSILON) {
+                return false;
+            }
+
             // 计算变化比例
             float oldRange = std::max(0.001f, oldMax - oldMin);
             float minDiff = std::abs(m_currentMin - oldMin) / oldRange;
             float maxDiff = std::abs(m_currentMax - oldMax) / oldRange;
 
-            // 任一端点变化超过5%即认为是显著变化
-            return minDiff > 0.05f || maxDiff > 0.05f;
+            // 使用配置的显著变化阈值
+            return minDiff > m_config.significantChangeThreshold ||
+                   maxDiff > m_config.significantChangeThreshold;
         }
 
     private:

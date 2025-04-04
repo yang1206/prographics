@@ -55,7 +55,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabWidget->addTab(controlPanel, "控制面板");
 
     // 默认使用平滑变化模式
-    m_dataGenerationMode = DataGenerationMode::RANDOM_AMPLITUDE;
+    m_dataGenerationMode = DataGenerationMode::SMOOTH_CHANGING;
 
     // 设置窗口大小
     resize(800, 600);
