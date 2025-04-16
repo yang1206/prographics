@@ -326,7 +326,7 @@ namespace ProGraphics {
                   stabilityThreshold(10), // 15帧内范围变化不大视为稳定
                   changeConfirmationCount(5), // 需要连续5帧确认范围变化
                   rangeLockTime(20), // 范围锁定30帧
-                  useHistoricalRange(true), // 默认使用历史平均范围
+                  useHistoricalRange(false), // 默认使用历史平均范围
                   outlierThreshold(1.5f) // 超过平均值2.5倍视为异常值
             {
             }
