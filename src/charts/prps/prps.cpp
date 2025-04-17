@@ -65,11 +65,11 @@ namespace ProGraphics {
     // 初始化动态量程
     DynamicRange::DynamicRangeConfig config;
 
-    m_dynamicRange = DynamicRange(0.0f, 0.0f, config);
+    m_dynamicRange = DynamicRange(0.0f, 5.0f, config);
 
     // 设置各轴的刻度范围
     setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
-    setTicksRange('y', 0.0f, 1.0f, 0.2f);
+    setTicksRange('y', 0.0f, 5.0f, 0.2f);
     setAxisVisible('z', false);
 
     // 连接更新线程的信号到动画更新槽

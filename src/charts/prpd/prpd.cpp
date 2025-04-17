@@ -11,11 +11,11 @@ namespace ProGraphics {
 
         // 初始化动态量程
         DynamicRange::DynamicRangeConfig config;
-        m_dynamicRange = DynamicRange(0.0f, 0.0f, config);
+        m_dynamicRange = DynamicRange(0.0f, 5.0f, config);
 
         // 设置初始坐标轴范围
         setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
-        setTicksRange('y', 0.0f, 1.0f, 0.2f);
+        setTicksRange('y', 0.0f, 5.0f, 0.2f);
         setAxisVisible('z', false);
 
         // 设置网格和坐标轴可见性
