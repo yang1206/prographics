@@ -154,7 +154,7 @@ void MainWindow::setupDataRangeControls() {
         m_currentMinRange = static_cast<float>(m_minRangeInput->value());
         m_currentMaxRange = static_cast<float>(m_maxRangeInput->value());
     });
-    
+
     connect(m_maxRangeSlider, &QSlider::valueChanged, this, [this](int value) {
         m_maxRangeInput->setValue(value);
         // 确保最大值不小于最小值
@@ -166,19 +166,19 @@ void MainWindow::setupDataRangeControls() {
         m_currentMinRange = static_cast<float>(m_minRangeInput->value());
         m_currentMaxRange = static_cast<float>(m_maxRangeInput->value());
     });
-    
+
     connect(m_minRangeInput, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
         m_minRangeSlider->setValue(static_cast<int>(value));
         // 直接应用范围变化
         m_currentMinRange = static_cast<float>(value);
     });
-    
+
     connect(m_maxRangeInput, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
         m_maxRangeSlider->setValue(static_cast<int>(value));
         // 直接应用范围变化
         m_currentMaxRange = static_cast<float>(value);
     });
-    
+
     connect(m_resetRangeButton, &QPushButton::clicked, this, &MainWindow::onResetRangeButtonClicked);
     connect(m_autoChangeCheckbox, &QCheckBox::toggled, this, &MainWindow::onAutoChangeToggled);
 }
@@ -218,12 +218,12 @@ void MainWindow::setupConfigControls() {
     // 添加最小量程控制组
     QGroupBox *minRangeGroup = new QGroupBox("最小量程控制", m_configGroup);
     QGridLayout *minRangeLayout = new QGridLayout(minRangeGroup);
-    
+
     // 启用最小量程
     m_enableMinRangeCheckbox = new QCheckBox("启用最小量程", minRangeGroup);
     m_enableMinRangeCheckbox->setChecked(true);
     minRangeLayout->addWidget(m_enableMinRangeCheckbox, 0, 0, 1, 2);
-    
+
     // 最小量程上限
     minRangeLayout->addWidget(new QLabel("最小量程上限:"), 1, 0);
     m_minRangeMaxInput = new QDoubleSpinBox(minRangeGroup);
@@ -231,7 +231,7 @@ void MainWindow::setupConfigControls() {
     m_minRangeMaxInput->setValue(5.0);
     m_minRangeMaxInput->setSingleStep(0.5);
     minRangeLayout->addWidget(m_minRangeMaxInput, 1, 1);
-    
+
     // 启用阈值
     minRangeLayout->addWidget(new QLabel("启用阈值:"), 2, 0);
     m_activationThresholdInput = new QDoubleSpinBox(minRangeGroup);
@@ -242,11 +242,11 @@ void MainWindow::setupConfigControls() {
 
     // 使用固定量程
     m_useFixedRangeCheckbox = new QCheckBox("使用固定量程", minRangeGroup);
-    m_useFixedRangeCheckbox->setChecked(false);
+    m_useFixedRangeCheckbox->setChecked(true);
     minRangeLayout->addWidget(m_useFixedRangeCheckbox, 3, 0, 1, 2);
-    
+
     configLayout->addWidget(minRangeGroup, 4, 0, 1, 2);
-    
+
     // 连接信号
     connect(m_enableMinRangeCheckbox, &QCheckBox::toggled, this, [=](bool checked) {
         m_minRangeMaxInput->setEnabled(checked);
@@ -311,7 +311,7 @@ void MainWindow::updateDynamicRangeConfig() {
     prpsConfig.responseSpeed = static_cast<float>(m_responseSpeedInput->value());
     prpsConfig.smartAdjustment = m_smartAdjustmentCheckbox->isChecked();
     prpsConfig.targetTickCount = m_targetTickCountInput->value();
-    
+
     // 更新最小量程配置
     prpsConfig.enforceMinimumRange = m_enableMinRangeCheckbox->isChecked();
     prpsConfig.minimumRangeMax = static_cast<float>(m_minRangeMaxInput->value());
@@ -322,12 +322,13 @@ void MainWindow::updateDynamicRangeConfig() {
     prpdConfig = prpsConfig;
 
     // 应用配置
+
     m_prpsChart->setDynamicRangeConfig(prpsConfig);
     m_prpdChart->setDynamicRangeConfig(prpdConfig);
 
     qDebug() << "更新动态量程配置: bufferRatio=" << prpsConfig.bufferRatio
-             << ", responseSpeed=" << prpsConfig.responseSpeed
-             << ", minimumRangeMax=" << prpsConfig.minimumRangeMax;
+            << ", responseSpeed=" << prpsConfig.responseSpeed
+            << ", minimumRangeMax=" << prpsConfig.minimumRangeMax;
 }
 
 void MainWindow::updateSliderLimits(float newMin, float newMax) {

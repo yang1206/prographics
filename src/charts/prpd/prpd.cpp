@@ -270,6 +270,15 @@ namespace ProGraphics {
 
     float PRPDChart::mapAmplitudeToGL(float amplitude) const {
         auto [displayMin, displayMax] = m_dynamicRange.getDisplayRange();
+        
+        // 处理超出范围的数据
+        if (amplitude < displayMin) {
+            return 0.0f; // 映射到坐标系底部
+        }
+        if (amplitude > displayMax) {
+            return PRPDConstants::GL_AXIS_LENGTH; // 映射到坐标系顶部
+        }
+        
         return (amplitude - displayMin) / (displayMax - displayMin) * PRPDConstants::GL_AXIS_LENGTH;
     }
 
@@ -316,26 +325,23 @@ namespace ProGraphics {
     PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude) const {
         auto [displayMin, displayMax] = m_dynamicRange.getDisplayRange();
 
-        // 处理极端情况 - 确保不会返回无效索引，而是最近的有效索引
+        // 处理超出范围的数据
         if (amplitude <= displayMin) {
-            return 0;
+            return 0; // 第一个bin
         }
         if (amplitude >= displayMax) {
-            return PRPDConstants::AMPLITUDE_BINS - 1;
+            return PRPDConstants::AMPLITUDE_BINS - 1; // 最后一个bin
         }
 
         float range = displayMax - displayMin;
-        // 防止除以接近零的值
         if (range < 1e-6f) {
             return PRPDConstants::AMPLITUDE_BINS / 2;
         }
 
         float normalizedPos = (amplitude - displayMin) / range;
-        // 添加一个小的epsilon值来处理浮点精度问题
         normalizedPos = std::max(0.0f, std::min(0.9999f, normalizedPos));
         int binIndex = static_cast<int>(normalizedPos * PRPDConstants::AMPLITUDE_BINS);
 
-        // 最后一道保险，确保返回有效索引
         return std::clamp(binIndex, 0, PRPDConstants::AMPLITUDE_BINS - 1);
     }
 
@@ -349,5 +355,18 @@ namespace ProGraphics {
 
         float normalizedPos = (binIndex + 0.5f) / PRPDConstants::AMPLITUDE_BINS;
         return displayMin + normalizedPos * (displayMax - displayMin);
+    }
+
+    void PRPDChart::setFixedRange(float min, float max, bool isFixed) {
+        m_dynamicRangeEnabled = !isFixed;
+        m_dynamicRange.setDisplayRange(min, max, isFixed);
+        
+        // 更新坐标轴
+        float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
+        setTicksRange('y', min, max, step);
+        
+        // 重建频次表
+        rebuildFrequencyTable();
+        update();
     }
 } // namespace ProGraphics

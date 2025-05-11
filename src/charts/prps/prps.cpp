@@ -307,8 +307,16 @@ namespace ProGraphics {
 
   float PRPSChart::mapAmplitudeToGL(float amplitude) const {
     auto [displayMin, displayMax] = m_dynamicRange.getDisplayRange();
-    return (amplitude - displayMin) / (displayMax - displayMin) *
-           PRPSConstants::GL_AXIS_LENGTH;
+    
+    // 处理超出范围的数据
+    if (amplitude < displayMin) {
+        return 0.0f; // 映射到坐标系底部
+    }
+    if (amplitude > displayMax) {
+        return PRPSConstants::GL_AXIS_LENGTH; // 映射到坐标系顶部
+    }
+    
+    return (amplitude - displayMin) / (displayMax - displayMin) * PRPSConstants::GL_AXIS_LENGTH;
   }
 
   float PRPSChart::mapGLToPhase(float glX) const {
@@ -354,6 +362,19 @@ namespace ProGraphics {
       }
     }
     doneCurrent();
+    update();
+  }
+
+  void PRPSChart::setFixedRange(float min, float max, bool isFixed) {
+    m_dynamicRangeEnabled = !isFixed;
+    m_dynamicRange.setDisplayRange(min, max, isFixed);
+    
+    // 更新坐标轴
+    float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
+    setTicksRange('y', min, max, step);
+    
+    // 重新计算所有线组
+    recalculateLineGroups();
     update();
   }
 } // namespace ProGraphics

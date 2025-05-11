@@ -269,8 +269,8 @@ namespace ProGraphics {
                   targetTickCount(6), // 6个刻度通常比较美观
                   enforceMinimumRange(true), // 默认启用最小量程
                   minimumRangeMax(5.0f), // 最小量程上限（0-5）
-                  minimumThreshold(2.0f), // 数据小于2.0时使用最小量程
-                  useFixedRange(false) // 默认不使用固定量程
+                  minimumThreshold(3.9f), // 数据小于2.0时使用最小量程
+                  useFixedRange(true) // 默认不使用固定量程
             {
             }
         };
@@ -400,6 +400,18 @@ namespace ProGraphics {
             m_rangeLockCooldown = 0;
         }
 
+        bool isDataExceedingRange(float dataMin, float dataMax) const {
+            return dataMin < m_currentMin || dataMax > m_currentMax;
+        }
+
+        std::pair<float, float> clampData(float value, bool isMin) const {
+            if (isMin) {
+                return {m_currentMin, value > m_currentMax ? m_currentMax : value};
+            } else {
+                return {value < m_currentMin ? m_currentMin : value, m_currentMax};
+            }
+        }
+
     private:
         // 初始化范围
         void initializeRange(float dataMin, float dataMax) {
@@ -422,9 +434,9 @@ namespace ProGraphics {
             m_currentMax = niceMax;
 
             // 记录调试信息
-            qDebug() << "初始化范围: 数据[" << dataMin << "," << dataMax
-                    << "] -> 显示[" << m_currentMin << "," << m_currentMax
-                    << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
+            // qDebug() << "初始化范围: 数据[" << dataMin << "," << dataMax
+            //         << "] -> 显示[" << m_currentMin << "," << m_currentMax
+            //         << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
         }
 
         // 更新目标范围
@@ -459,9 +471,9 @@ namespace ProGraphics {
             m_targetMax = niceMax;
 
             // 输出调试信息
-            qDebug() << "更新目标范围: 数据[" << dataMin << "," << dataMax
-                    << "] -> 目标[" << m_targetMin << "," << m_targetMax
-                    << "] (缓冲区:" << (m_targetMax - dataMax) << ")";
+            // qDebug() << "更新目标范围: 数据[" << dataMin << "," << dataMax
+            //         << "] -> 目标[" << m_targetMin << "," << m_targetMax
+            //         << "] (缓冲区:" << (m_targetMax - dataMax) << ")";
         }
 
         // 平滑更新当前范围，接受平滑因子参数
@@ -487,8 +499,8 @@ namespace ProGraphics {
             m_currentMax = niceMax;
 
             // 输出调试信息
-            qDebug() << "平滑更新: 当前[" << m_currentMin << "," << m_currentMax
-                    << "] (平滑因子:" << smoothFactor << ")";
+            // qDebug() << "平滑更新: 当前[" << m_currentMin << "," << m_currentMax
+            //         << "] (平滑因子:" << smoothFactor << ")";
         }
 
         // 判断范围是否发生显著变化
