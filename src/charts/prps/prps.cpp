@@ -124,9 +124,9 @@ namespace ProGraphics {
   }
 
   void PRPSChart::addCycleData(const std::vector<float> &cycleData) {
-    if (cycleData.size() != PRPSConstants::PHASE_POINTS) {
+    if (cycleData.size() != m_phasePoints) {
       qWarning() << "Invalid cycle data size:" << cycleData.size()
-          << "expected:" << PRPSConstants::PHASE_POINTS;
+          << "expected:" << m_phasePoints;
       return;
     }
 
@@ -169,7 +169,7 @@ namespace ProGraphics {
     newGroup->amplitudes = cycleData;
 
     int validCount = 0;
-    for (int i = 0; i < PRPSConstants::PHASE_POINTS; ++i) {
+    for (int i = 0; i < m_phasePoints; ++i) {
       float glY = mapAmplitudeToGL(cycleData[i]);
       if (glY > 0.0f)
         validCount++;
@@ -184,8 +184,8 @@ namespace ProGraphics {
 
     newGroup->transforms.reserve(validCount);
 
-    for (int i = 0; i < PRPSConstants::PHASE_POINTS; ++i) {
-      float phase = (float) i / (PRPSConstants::PHASE_POINTS - 1) * m_phaseMax;
+    for (int i = 0; i < m_phasePoints; ++i) {
+      float phase = (float) i / (m_phasePoints - 1) * m_phaseMax;
       float glX = mapPhaseToGL(phase);
       float glY = mapAmplitudeToGL(cycleData[i]);
       if (glY <= 0.0f)
@@ -296,6 +296,10 @@ namespace ProGraphics {
     m_dynamicRangeEnabled = enabled;
   }
 
+  void PRPSChart::setPhasePoint(int phasePoint) {
+    m_phasePoints = phasePoint;
+  }
+
   bool PRPSChart::isDynamicRangeEnabled() const {
     return m_dynamicRangeEnabled;
   }
@@ -307,15 +311,15 @@ namespace ProGraphics {
 
   float PRPSChart::mapAmplitudeToGL(float amplitude) const {
     auto [displayMin, displayMax] = m_dynamicRange.getDisplayRange();
-    
+
     // 处理超出范围的数据
     if (amplitude < displayMin) {
-        return 0.0f; // 映射到坐标系底部
+      return 0.0f; // 映射到坐标系底部
     }
     if (amplitude > displayMax) {
-        return PRPSConstants::GL_AXIS_LENGTH; // 映射到坐标系顶部
+      return PRPSConstants::GL_AXIS_LENGTH; // 映射到坐标系顶部
     }
-    
+
     return (amplitude - displayMin) / (displayMax - displayMin) * PRPSConstants::GL_AXIS_LENGTH;
   }
 
@@ -345,8 +349,8 @@ namespace ProGraphics {
       }
       group->transforms.reserve(validCount);
 
-      for (int i = 0; i < PRPSConstants::PHASE_POINTS; ++i) {
-        float phase = (float) i / (PRPSConstants::PHASE_POINTS - 1) * m_phaseMax;
+      for (int i = 0; i < m_phasePoints; ++i) {
+        float phase = (float) i / (m_phasePoints - 1) * m_phaseMax;
         float glX = mapPhaseToGL(phase);
         float glY = mapAmplitudeToGL(group->amplitudes[i]);
 
@@ -368,11 +372,11 @@ namespace ProGraphics {
   void PRPSChart::setFixedRange(float min, float max, bool isFixed) {
     m_dynamicRangeEnabled = !isFixed;
     m_dynamicRange.setDisplayRange(min, max, isFixed);
-    
+
     // 更新坐标轴
     float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
     setTicksRange('y', min, max, step);
-    
+
     // 重新计算所有线组
     recalculateLineGroups();
     update();

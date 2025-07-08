@@ -46,7 +46,10 @@ namespace ProGraphics {
             rebuildFrequencyTable();
             update();
         };
+
         void setFixedRange(float min, float max, bool isFixed = true);
+
+        void setPhasePoint(int phasePoint);
 
     protected:
         // OpenGL渲染相关
@@ -90,6 +93,8 @@ namespace ProGraphics {
         float m_displayMax = -30.0f; // 显示最大值
         float m_phaseMin = PRPDConstants::PHASE_MIN; // 相位最小值
         float m_phaseMax = PRPDConstants::PHASE_MAX; // 相位最大值
+
+        int m_phasePoints = PRPDConstants::PHASE_POINTS;
 
         // 动态量程管理器
         DynamicRange m_dynamicRange;

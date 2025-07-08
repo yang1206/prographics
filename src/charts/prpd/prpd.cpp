@@ -78,8 +78,8 @@ namespace ProGraphics {
     }
 
     void PRPDChart::addCycleData(const std::vector<float> &cycleData) {
-        if (cycleData.size() != PRPDConstants::PHASE_POINTS) {
-            qWarning() << "Invalid cycle data size:" << cycleData.size() << "expected:" << PRPDConstants::PHASE_POINTS;
+        if (cycleData.size() != m_phasePoints) {
+            qWarning() << "Invalid cycle data size:" << cycleData.size() << "expected:" << m_phasePoints;
             return;
         }
 
@@ -105,8 +105,8 @@ namespace ProGraphics {
         }
 
         // 计算并存储当前显示范围下的bin索引
-        std::vector<BinIndex> currentBinIndices(PRPDConstants::PHASE_POINTS);
-        for (int i = 0; i < PRPDConstants::PHASE_POINTS; ++i) {
+        std::vector<BinIndex> currentBinIndices(m_phasePoints);
+        for (int i = 0; i < m_phasePoints; ++i) {
             currentBinIndices[i] = getAmplitudeBinIndex(cycleData[i]);
         }
 
@@ -115,7 +115,7 @@ namespace ProGraphics {
             const auto &oldestBinIndices = m_cycleBuffer.binIndices[m_cycleBuffer.currentIndex];
 
             // 使用存储的bin索引直接更新频次表
-            for (int phaseIdx = 0; phaseIdx < PRPDConstants::PHASE_POINTS; ++phaseIdx) {
+            for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
                 BinIndex binIdx = oldestBinIndices[phaseIdx];
                 if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
                     int &freq = m_frequencyTable[phaseIdx][binIdx];
@@ -142,7 +142,7 @@ namespace ProGraphics {
         }
 
         // 更新新数据的频次
-        for (int phaseIdx = 0; phaseIdx < PRPDConstants::PHASE_POINTS; ++phaseIdx) {
+        for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
             BinIndex binIdx = currentBinIndices[phaseIdx];
             if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
                 int &freq = m_frequencyTable[phaseIdx][binIdx];
@@ -181,8 +181,8 @@ namespace ProGraphics {
         // 按频次分组
         std::map<int, RenderBatch> batchMap; // 频次 -> 批次
 
-        for (int phaseIdx = 0; phaseIdx < PRPDConstants::PHASE_POINTS; ++phaseIdx) {
-            float phase = static_cast<float>(phaseIdx) * (PRPDConstants::PHASE_MAX / PRPDConstants::PHASE_POINTS);
+        for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
+            float phase = static_cast<float>(phaseIdx) * (PRPDConstants::PHASE_MAX / m_phasePoints);
 
             for (BinIndex binIdx = 0; binIdx < PRPDConstants::AMPLITUDE_BINS; ++binIdx) {
                 int frequency = m_frequencyTable[phaseIdx][binIdx];
@@ -270,7 +270,7 @@ namespace ProGraphics {
 
     float PRPDChart::mapAmplitudeToGL(float amplitude) const {
         auto [displayMin, displayMax] = m_dynamicRange.getDisplayRange();
-        
+
         // 处理超出范围的数据
         if (amplitude < displayMin) {
             return 0.0f; // 映射到坐标系底部
@@ -278,7 +278,7 @@ namespace ProGraphics {
         if (amplitude > displayMax) {
             return PRPDConstants::GL_AXIS_LENGTH; // 映射到坐标系顶部
         }
-        
+
         return (amplitude - displayMin) / (displayMax - displayMin) * PRPDConstants::GL_AXIS_LENGTH;
     }
 
@@ -293,8 +293,8 @@ namespace ProGraphics {
             const auto &cycle = m_cycleBuffer.data[i];
 
             // 在新范围下重新计算所有bin索引
-            std::vector<BinIndex> newBinIndices(PRPDConstants::PHASE_POINTS);
-            for (int j = 0; j < PRPDConstants::PHASE_POINTS; ++j) {
+            std::vector<BinIndex> newBinIndices(m_phasePoints);
+            for (int j = 0; j < m_phasePoints; ++j) {
                 newBinIndices[j] = getAmplitudeBinIndex(cycle[j]);
             }
 
@@ -302,7 +302,7 @@ namespace ProGraphics {
             m_cycleBuffer.binIndices[i] = newBinIndices;
 
             // 更新频次表
-            for (int phaseIdx = 0; phaseIdx < PRPDConstants::PHASE_POINTS; ++phaseIdx) {
+            for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
                 BinIndex binIdx = newBinIndices[phaseIdx];
                 if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
                     int &freq = m_frequencyTable[phaseIdx][binIdx];
@@ -360,13 +360,17 @@ namespace ProGraphics {
     void PRPDChart::setFixedRange(float min, float max, bool isFixed) {
         m_dynamicRangeEnabled = !isFixed;
         m_dynamicRange.setDisplayRange(min, max, isFixed);
-        
+
         // 更新坐标轴
         float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
         setTicksRange('y', min, max, step);
-        
+
         // 重建频次表
         rebuildFrequencyTable();
         update();
+    }
+
+    void PRPDChart::setPhasePoint(int phasePoint) {
+        m_phasePoints = phasePoint;
     }
 } // namespace ProGraphics

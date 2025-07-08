@@ -78,6 +78,8 @@ namespace ProGraphics {
 
         void setDynamicRangeEnabled(bool enabled);
 
+        void setPhasePoint(int phasePoint);
+
         bool isDynamicRangeEnabled() const;
 
         void setUpdateInterval(int intervalMs) {
@@ -125,6 +127,8 @@ namespace ProGraphics {
         // 坐标范围
         float m_phaseMin = PRPSConstants::PHASE_MIN;
         float m_phaseMax = PRPSConstants::PHASE_MAX;
+
+        int m_phasePoints = PRPSConstants::PHASE_POINTS;
 
         // 处理方法
         void processCurrentCycles();
