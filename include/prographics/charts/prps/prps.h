@@ -90,6 +90,8 @@ namespace ProGraphics {
             update();
         };
 
+        void setFixedRange(float min, float max, bool isFixed = true);
+
     protected:
         void initializeGLObjects() override;
 

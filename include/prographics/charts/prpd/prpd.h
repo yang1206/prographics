@@ -46,6 +46,7 @@ namespace ProGraphics {
             rebuildFrequencyTable();
             update();
         };
+        void setFixedRange(float min, float max, bool isFixed = true);
 
     protected:
         // OpenGL渲染相关
