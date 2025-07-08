@@ -221,7 +221,7 @@ void MainWindow::setupConfigControls() {
 
     // 启用最小量程
     m_enableMinRangeCheckbox = new QCheckBox("启用最小量程", minRangeGroup);
-    m_enableMinRangeCheckbox->setChecked(true);
+    m_enableMinRangeCheckbox->setChecked(false);
     minRangeLayout->addWidget(m_enableMinRangeCheckbox, 0, 0, 1, 2);
 
     // 最小量程上限
@@ -242,7 +242,7 @@ void MainWindow::setupConfigControls() {
 
     // 使用固定量程
     m_useFixedRangeCheckbox = new QCheckBox("使用固定量程", minRangeGroup);
-    m_useFixedRangeCheckbox->setChecked(true);
+    m_useFixedRangeCheckbox->setChecked(false);
     minRangeLayout->addWidget(m_useFixedRangeCheckbox, 3, 0, 1, 2);
 
     configLayout->addWidget(minRangeGroup, 4, 0, 1, 2);

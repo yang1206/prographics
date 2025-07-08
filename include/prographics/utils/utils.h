@@ -267,10 +267,10 @@ namespace ProGraphics {
                   responseSpeed(0.7f), // 较高响应速度（范围0.1-1.0，越大响应越快）
                   smartAdjustment(true), // 启用智能调整
                   targetTickCount(6), // 6个刻度通常比较美观
-                  enforceMinimumRange(true), // 默认启用最小量程
+                  enforceMinimumRange(false), // 默认启用最小量程
                   minimumRangeMax(5.0f), // 最小量程上限（0-5）
                   minimumThreshold(3.9f), // 数据小于2.0时使用最小量程
-                  useFixedRange(true) // 默认不使用固定量程
+                  useFixedRange(false) // 默认不使用固定量程
             {
             }
         };
