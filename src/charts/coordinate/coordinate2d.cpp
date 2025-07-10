@@ -216,11 +216,12 @@ namespace ProGraphics {
     update();
   }
 
-  void Coordinate2D::setAxisColor(char axis, const QVector4D &color) {
+  void Coordinate2D::setAxisColor(char axis, const QColor &color) {
+    QVector4D vColor = QVector4D(color.redF(), color.greenF(), color.blueF(), color.alphaF());
     if (axis == 'x') {
-      m_config.axis.x.color = color;
+      m_config.axis.x.color = vColor;
     } else if (axis == 'y') {
-      m_config.axis.y.color = color;
+      m_config.axis.y.color = vColor;
     }
     updateAxisSystem();
     update();
@@ -320,10 +321,14 @@ namespace ProGraphics {
     update();
   }
 
-  void Coordinate2D::setGridColors(const QVector4D &majorColor,
-                                   const QVector4D &minorColor) {
-    m_config.grid.xy.majorColor = majorColor;
-    m_config.grid.xy.minorColor = minorColor;
+  void Coordinate2D::setGridColors(const QColor &majorColor,
+                                   const QColor &minorColor) {
+    QVector4D vMajorColor = QVector4D(majorColor.redF(), majorColor.greenF(),
+                                      majorColor.blueF(), majorColor.alphaF());
+    QVector4D vMinorColor = QVector4D(minorColor.redF(), minorColor.greenF(),
+                                      minorColor.blueF(), minorColor.alphaF());
+    m_config.grid.xy.majorColor = vMajorColor;
+    m_config.grid.xy.minorColor = vMinorColor;
     updateGridSystem();
     update();
   }
@@ -336,6 +341,12 @@ namespace ProGraphics {
 
   void Coordinate2D::setGridThickness(float thickness) {
     m_config.grid.xy.thickness = thickness;
+    updateGridSystem();
+    update();
+  }
+
+  void Coordinate2D::setGridSineWaveConfig(Grid::SineWaveConfig &config) {
+    m_config.grid.xy.sineWave = config;
     updateGridSystem();
     update();
   }
@@ -374,20 +385,12 @@ namespace ProGraphics {
   void Coordinate2D::setTicksOffset(char axis, const QVector3D &offset) {
     if (!m_tickSystem) return;
 
-    AxisTicks::Config tickConfig = m_tickSystem->config();
-    switch (axis) {
-      case 'x':
-        tickConfig.x.offset = offset;
-        break;
-      case 'y':
-        tickConfig.y.offset = offset;
-        break;
-      case 'z':
-        tickConfig.z.offset = offset;
-        break;
+    if (axis == 'x') {
+      m_config.ticks.x.offset = offset;
+    } else if (axis == 'y') {
+      m_config.ticks.y.offset = offset;
     }
-
-    m_tickSystem->setConfig(tickConfig);
+    updateTickSystem();
     update();
   }
 
@@ -469,8 +472,8 @@ namespace ProGraphics {
         m_config.grid.xy.majorColor,
         m_config.grid.xy.minorColor
       };
-      //TODO 先默认显示，后面增加从外部控制
-      gridConfig.xy.sineWave.visible = true;
+
+      gridConfig.xy.sineWave = m_config.grid.xy.sineWave;
       //禁用XZ和YZ平面网格
       gridConfig.xz.visible = false;
       gridConfig.yz.visible = false;

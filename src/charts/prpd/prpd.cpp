@@ -6,8 +6,8 @@
 namespace ProGraphics {
     PRPDChart::PRPDChart(QWidget *parent) : Coordinate2D(parent) {
         // 设置坐标轴名称和单位
-        setAxisName('x', "相位", "°");
-        setAxisName('y', "幅值", "dBmV");
+        setAxisName('x', "Phase", "°");
+        setAxisName('y', "", "dBm");
 
         // 初始化动态量程
         DynamicRange::DynamicRangeConfig config;

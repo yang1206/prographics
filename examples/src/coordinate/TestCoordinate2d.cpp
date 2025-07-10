@@ -21,6 +21,8 @@ void TestCoordinate2d::setupCoordinateSystem() {
 
     // 设置各轴的名称和单位
     m_coordinateSystem->setAxisName('x', "Phase", "°");
+
+    m_coordinateSystem->setAxisNameOffset('y', -0.2f, 0.3f);
     m_coordinateSystem->setAxisName('y', "Power", "dBm");
 
     // 设置各轴的刻度范围
@@ -31,11 +33,16 @@ void TestCoordinate2d::setupCoordinateSystem() {
 
     // 设置轴名称的位置和样式
     m_coordinateSystem->setAxisNameLocation('x',
-                                            ProGraphics::AxisName::Location::End);
+                                            ProGraphics::AxisName::Location::Middle);
+    m_coordinateSystem->setAxisNameOffset('x', 0.0f, -0.3f);
+
     m_coordinateSystem->setAxisNameLocation('y',
                                             ProGraphics::AxisName::Location::End);
     m_coordinateSystem->setAxisNameLocation('z',
                                             ProGraphics::AxisName::Location::End);
+
+    m_coordinateSystem->setTicksOffset('x', QVector3D(0.4f, 0.8f, 0));
+    m_coordinateSystem->setTicksOffset('y', QVector3D(0.4f, 0.8f, 0));
 
 
     // 设置轴名称和刻度的可见性
