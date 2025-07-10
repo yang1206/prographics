@@ -172,7 +172,7 @@ namespace ProGraphics {
      * @param axis 轴标识符('x', 'y')
      * @param color 颜色值
      */
-    void setAxisColor(char axis, const QVector4D &color);
+    void setAxisColor(char axis, const QColor &color);
 
     /**
      * @brief 设置指定轴的粗细
@@ -261,7 +261,7 @@ namespace ProGraphics {
      * @param majorColor 主网格线颜色
      * @param minorColor 次网格线颜色
      */
-    void setGridColors(const QVector4D &majorColor, const QVector4D &minorColor);
+    void setGridColors(const QColor &majorColor, const QColor &minorColor);
 
     /**
      * @brief 设置网格线间距
@@ -274,6 +274,13 @@ namespace ProGraphics {
      * @param thickness 粗细值
      */
     void setGridThickness(float thickness);
+
+
+    /**
+     * @brief 设置网格线中正弦波相关配置
+     * @param config
+     */
+    void setGridSineWaveConfig(Grid::SineWaveConfig &config);
 
     // 刻度相关的方法
     /**

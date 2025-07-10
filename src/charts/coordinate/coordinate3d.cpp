@@ -210,17 +210,20 @@ void main() {
     update();
   }
 
-  void Coordinate3D::setAxisColor(char axis, const QVector4D &color) {
+  void Coordinate3D::setAxisColor(char axis, const QColor &color) {
+    QVector4D vColor = QVector4D(color.redF(), color.greenF(), color.blueF(), color.alphaF());
     switch (axis) {
       case 'x':
-        m_config.axis.x.color = color;
+        m_config.axis.x.color = vColor;
         break;
       case 'y':
-        m_config.axis.y.color = color;
+        m_config.axis.y.color = vColor;
         break;
       case 'z':
-        m_config.axis.z.color = color;
+        m_config.axis.z.color = vColor;
         break;
+      default:
+        qWarning() << "错误的axis";
     }
     updateAxisSystem();
     update();
@@ -283,18 +286,34 @@ void main() {
     update();
   }
 
-  void Coordinate3D::setGridColors(const QString &plane,
-                                   const QVector4D &majorColor,
-                                   const QVector4D &minorColor) {
+  void Coordinate3D::setGridSineWaveConfig(const QString &plane, Grid::SineWaveConfig &config) {
     if (plane == "xy") {
-      m_config.grid.xy.majorColor = majorColor;
-      m_config.grid.xy.minorColor = minorColor;
+      m_config.grid.xy.sineWave = config;
     } else if (plane == "xz") {
-      m_config.grid.xz.majorColor = majorColor;
-      m_config.grid.xz.minorColor = minorColor;
+      m_config.grid.xz.sineWave = config;
     } else if (plane == "yz") {
-      m_config.grid.yz.majorColor = majorColor;
-      m_config.grid.yz.minorColor = minorColor;
+      m_config.grid.yz.sineWave = config;
+    }
+    updateGridSystem();
+    update();
+  }
+
+  void Coordinate3D::setGridColors(const QString &plane,
+                                   const QColor &majorColor,
+                                   const QColor &minorColor) {
+    QVector4D vMajorColor = QVector4D(majorColor.redF(), majorColor.greenF(), majorColor.blueF(),
+                                      majorColor.alphaF());
+    QVector4D vMinorColor = QVector4D(minorColor.redF(), minorColor.greenF(), minorColor.blueF(),
+                                      minorColor.alphaF());
+    if (plane == "xy") {
+      m_config.grid.xy.majorColor = vMajorColor;
+      m_config.grid.xy.minorColor = vMinorColor;
+    } else if (plane == "xz") {
+      m_config.grid.xz.majorColor = vMajorColor;
+      m_config.grid.xz.minorColor = vMinorColor;
+    } else if (plane == "yz") {
+      m_config.grid.yz.majorColor = vMajorColor;
+      m_config.grid.yz.minorColor = vMinorColor;
     }
     updateGridSystem();
     update();
@@ -411,9 +430,9 @@ void main() {
     update();
   }
 
-  void Coordinate3D::setAxisAndGridColor(char axis, const QVector4D &axisColor,
-                                         const QVector4D &gridMajorColor,
-                                         const QVector4D &gridMinorColor) {
+  void Coordinate3D::setAxisAndGridColor(char axis, const QColor &axisColor,
+                                         const QColor &gridMajorColor,
+                                         const QColor &gridMinorColor) {
     // 设置轴颜色
     setAxisColor(axis, axisColor);
 
@@ -583,8 +602,10 @@ void main() {
         m_config.grid.xy.minorColor
       };
       gridConfig.xy.visible = m_config.grid.enabled && m_config.grid.xy.visible;
-      //TODO 先默认显示，后面增加从外部控制
-      gridConfig.xy.sineWave.visible = true;
+
+      gridConfig.xy.sineWave = m_config.grid.xy.sineWave;
+      gridConfig.yz.sineWave = m_config.grid.yz.sineWave;
+      gridConfig.xz.visible = m_config.grid.xz.visible;
 
       // XZ平面配置
       gridConfig.xz = {

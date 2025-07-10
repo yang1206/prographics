@@ -76,6 +76,35 @@ void MainWindow::setupCombinedTab() {
     m_prpsChart = new ProGraphics::PRPSChart(m_combinedTab);
     m_prpdChart = new ProGraphics::PRPDChart(m_combinedTab);
 
+    m_prpdChart->setBackgroundColor(QColor(251, 251, 251));
+    m_prpdChart->setAxisColor('x', QColor("#6e7079"));
+    ProGraphics::TextRenderer::TextStyle axisNameStyle;
+    axisNameStyle.color = QColor("#6e7079");
+    m_prpdChart->setAxisNameStyle('x', axisNameStyle);
+    m_prpdChart->setTicksStyle('x', axisNameStyle);
+    m_prpdChart->setAxisColor('y', QColor("#6e7079"));
+    m_prpdChart->setAxisNameStyle('y', axisNameStyle);
+    m_prpdChart->setTicksStyle('y', axisNameStyle);
+    m_prpdChart->setGridColors(QColor("#e0e6f1"), QColor("#e7e6e6"));
+    ProGraphics::Grid::SineWaveConfig sineWave;
+    sineWave.visible = true;
+    sineWave.color = QVector4D(QColor(0x6e7079).redF(), QColor("#6e7079").greenF(), QColor("#6e7079").blueF(), 1.0);
+    m_prpdChart->setGridSineWaveConfig(sineWave);
+    m_prpsChart->setBackgroundColor(QColor(251, 251, 251));
+    m_prpsChart->setAxisNameStyle('x', axisNameStyle);
+    m_prpsChart->setTicksStyle('x', axisNameStyle);
+    m_prpsChart->setAxisNameStyle('y', axisNameStyle);
+    m_prpsChart->setTicksStyle('y', axisNameStyle);
+    m_prpsChart->setAxisNameStyle('z', axisNameStyle);
+    m_prpsChart->setTicksStyle('z', axisNameStyle);
+
+    m_prpsChart->setAxisAndGridColor('x', QColor("#6e7079"), QColor("#e0e6f1"), QColor("#e7e6e6"));
+    m_prpsChart->setAxisAndGridColor('y', QColor("#6e7079"), QColor("#e0e6f1"), QColor("#e7e6e6"));
+    m_prpsChart->setAxisAndGridColor('z', QColor("#6e7079"), QColor("#e0e6f1"), QColor("#e7e6e6"));
+
+    m_prpsChart->setGridSineWaveConfig(QString("xy"), sineWave);
+
+
     // 创建图表分割器
     QSplitter *chartSplitter = new QSplitter(Qt::Vertical, m_combinedTab);
     chartSplitter->addWidget(m_prpsChart);

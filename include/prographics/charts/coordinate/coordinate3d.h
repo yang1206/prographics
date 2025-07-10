@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "axis_name.h"
 #include "axis_ticks.h"
+#include "grid.h"
 #include "prographics/charts/base/gl_widget.h"
 #include "prographics/core/renderer/text_renderer.h"
 #include "prographics/utils/camera.h"
@@ -44,6 +45,7 @@ namespace ProGraphics {
       float spacing = 0.5f; ///< 网格线间距
       QVector4D majorColor{0.5f, 0.5f, 0.5f, 0.5f}; ///< 主网格线颜色
       QVector4D minorColor{0.3f, 0.3f, 0.3f, 0.3f}; ///< 次网格线颜色
+      Grid::SineWaveConfig sineWave;
     };
 
     /**
@@ -148,7 +150,7 @@ namespace ProGraphics {
     void setAxisEnabled(bool enabled);
 
     void setAxisVisible(char axis, bool visible); // axis: 'x', 'y', 'z'
-    void setAxisColor(char axis, const QVector4D &color);
+    void setAxisColor(char axis, const QColor &color);
 
     void setAxisThickness(char axis, float thickness);
 
@@ -187,12 +189,19 @@ namespace ProGraphics {
 
     void setGridVisible(const QString &plane,
                         bool visible); // plane: "xy", "xz", "yz"
-    void setGridColors(const QString &plane, const QVector4D &majorColor,
-                       const QVector4D &minorColor);
+    void setGridColors(const QString &plane, const QColor &majorColor,
+                       const QColor &minorColor);
 
     void setGridSpacing(const QString &plane, float spacing);
 
     void setGridThickness(const QString &plane, float thickness);
+
+    /**
+     * @brief 设置网格线中正弦波相关配置
+     * @param plane
+     * @param config
+     */
+    void setGridSineWaveConfig(const QString &plane, Grid::SineWaveConfig &config);
 
     // 刻度相关的方法
     void setTicksEnabled(bool enabled);
@@ -210,9 +219,9 @@ namespace ProGraphics {
     void setTicksFormatter(char axis, std::function<QString(float)> formatter);
 
     // 组合配置方法
-    void setAxisAndGridColor(char axis, const QVector4D &axisColor,
-                             const QVector4D &gridMajorColor,
-                             const QVector4D &gridMinorColor);
+    void setAxisAndGridColor(char axis, const QColor &axisColor,
+                             const QColor &gridMajorColor,
+                             const QColor &gridMinorColor);
 
 
     /**
