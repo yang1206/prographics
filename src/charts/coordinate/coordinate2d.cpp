@@ -56,19 +56,79 @@ namespace ProGraphics {
     // 设置相机位置和目标点
     m_camera.setPosition(QVector3D(size / 2 + centerX, size / 2 + centerY, 10));
     m_camera.setTarget(QVector3D(size / 2 + centerX, size / 2 + centerY, 0));
-    // 计算正交投影的边界
-    float aspect = width() / static_cast<float>(height());
-    // 计算实际显示范围，保持纵横比
+    // 获取窗口尺寸
+    float windowWidth = static_cast<float>(width());
+    float windowHeight = static_cast<float>(height());
+
+    // 防止除零错误
+    if (windowWidth <= 0) windowWidth = 800;
+    if (windowHeight <= 0) windowHeight = 600;
+
+    // 计算窗口和内容的纵横比
+    float windowAspect = windowWidth / windowHeight;
+    float contentAspect = totalWidth / totalHeight;
+
+    // 根据显示模式计算显示范围
     float displayWidth, displayHeight;
-    if (aspect >= 1.0f) {
-      displayWidth = totalWidth * aspect;
-      displayHeight = totalHeight;
-    } else {
-      displayWidth = totalWidth;
-      displayHeight = totalHeight / aspect;
+
+    switch (m_config.displayMode) {
+      case DisplayMode::Stretch:
+        // 拉伸模式：完全填满窗口
+        displayWidth = totalWidth;
+        displayHeight = totalHeight;
+        break;
+
+      case DisplayMode::KeepAspectRatio:
+        // 等比例缩放模式：保持纵横比（原有行为）
+        if (windowAspect >= contentAspect) {
+          displayWidth = totalWidth * (windowAspect / contentAspect);
+          displayHeight = totalHeight;
+        } else {
+          displayWidth = totalWidth;
+          displayHeight = totalHeight * (contentAspect / windowAspect);
+        }
+        break;
+
+      case DisplayMode::FitWidth:
+        // 适应宽度模式：以窗口宽度为准
+        displayWidth = totalWidth;
+        displayHeight = totalHeight * (windowAspect / contentAspect);
+        break;
+
+      case DisplayMode::FitHeight:
+        // 适应高度模式：以窗口高度为准
+        displayWidth = totalWidth * (contentAspect / windowAspect);
+        displayHeight = totalHeight;
+        break;
+
+      case DisplayMode::SmartFit:
+        // 智能适应模式：根据比例差异选择最佳方式
+      {
+        float aspectRatio = windowAspect / contentAspect;
+        if (aspectRatio > 1.2f) {
+          // 窗口明显更宽，适应高度
+          displayWidth = totalWidth * aspectRatio;
+          displayHeight = totalHeight;
+        } else if (aspectRatio < 0.8f) {
+          // 窗口明显更高，适应宽度
+          displayWidth = totalWidth;
+          displayHeight = totalHeight / aspectRatio;
+        } else {
+          // 比例接近，使用拉伸模式
+          displayWidth = totalWidth;
+          displayHeight = totalHeight;
+        }
+      }
+      break;
+
+      default:
+        // 默认使用等比例缩放
+        displayWidth = totalWidth;
+        displayHeight = totalHeight;
+        break;
     }
 
-    // 设置正交投影参数，使坐标轴居中
+    // 设置正交投影参数
     m_camera.setOrthographicParams(
       -displayWidth / 2, displayWidth / 2, // left, right
       -displayHeight / 2, displayHeight / 2, // bottom, top
@@ -434,6 +494,12 @@ namespace ProGraphics {
     m_config.margin.right = right;
     m_config.margin.top = top;
     m_config.margin.bottom = bottom;
+    setupCamera();
+    update();
+  }
+
+  void Coordinate2D::setDisplayMode(DisplayMode mode) {
+    m_config.displayMode = mode;
     setupCamera();
     update();
   }

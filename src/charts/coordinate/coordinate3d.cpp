@@ -162,7 +162,12 @@ void main() {
 
   void Coordinate3D::resizeGL(int w, int h) {
     BaseGLWidget::resizeGL(w, h);
-    m_camera.setAspectRatio(float(w) / float(h));
+    if (m_config.displayMode != DisplayMode3D::FreeView) {
+      adjustCameraForDisplayMode();
+    } else {
+      // 自由模式只更新纵横比
+      m_camera.setAspectRatio(float(w) / float(h));
+    }
   }
 
   void Coordinate3D::setConfig(const Config &config) {
@@ -453,6 +458,28 @@ void main() {
     }
   }
 
+
+  void Coordinate3D::setDisplayMode(DisplayMode3D mode) {
+    m_config.displayMode = mode;
+    adjustCameraForDisplayMode();
+  }
+
+  void Coordinate3D::setDisplaySettings(const Config::DisplaySettings &settings) {
+    m_config.displaySettings = settings;
+    if (m_config.displayMode != DisplayMode3D::FreeView) {
+      adjustCameraForDisplayMode();
+    }
+  }
+
+  void Coordinate3D::resetCameraToOptimalView() {
+    auto params = calculateOptimalCameraParams(width(), height());
+    m_camera.setPosition(params.position);
+    m_camera.setFov(params.fov);
+    m_camera.setAspectRatio(static_cast<float>(width()) / height());
+    update();
+  }
+
+
   void Coordinate3D::setAxisNameEnabled(bool enabled) {
     m_config.names.enabled = enabled;
     updateNameSystem();
@@ -684,6 +711,178 @@ void main() {
 
     m_tickSystem->setConfig(tickConfig);
   }
+
+  void Coordinate3D::adjustCameraForDisplayMode() {
+    int windowWidth = width();
+    int windowHeight = height();
+    // 防止除零错误
+    if (windowWidth <= 0) windowWidth = 800;
+    if (windowHeight <= 0) windowHeight = 600;
+
+    const auto &settings = m_config.displaySettings;
+
+    switch (m_config.displayMode) {
+      case DisplayMode3D::FreeView:
+        // 自由模式：只更新纵横比，不做其他调整
+        m_camera.setAspectRatio(static_cast<float>(windowWidth) / windowHeight);
+        break;
+
+      case DisplayMode3D::AdaptiveFOV: {
+        // 自适应FOV模式：根据窗口大小调整视野角度
+        int minDimension = std::min(windowWidth, windowHeight);
+        float adaptiveFov = settings.baseFOV;
+
+        if (minDimension < 300) {
+          // 很小的窗口，增加FOV显示更多内容
+          adaptiveFov = settings.baseFOV + (300 - minDimension) * 0.08f * settings.adaptiveSensitivity;
+        } else if (minDimension < 500) {
+          // 小窗口，适度增加FOV
+          adaptiveFov = settings.baseFOV + (500 - minDimension) * 0.04f * settings.adaptiveSensitivity;
+        } else if (minDimension > 1000) {
+          // 大窗口，减少FOV获得更好细节
+          adaptiveFov = settings.baseFOV - (minDimension - 1000) * 0.01f * settings.adaptiveSensitivity;
+        }
+
+        // 限制FOV范围
+        adaptiveFov = std::clamp(adaptiveFov, settings.minFOV, settings.maxFOV);
+
+        m_camera.setFov(adaptiveFov);
+        m_camera.setAspectRatio(static_cast<float>(windowWidth) / windowHeight);
+      }
+      break;
+      case DisplayMode3D::FixedDistance: {
+        // 固定距离模式：保持相机到目标的距离，但调整FOV
+        QVector3D currentPos = m_camera.getPosition();
+        QVector3D target = m_camera.getTarget();
+        float currentDistance = (currentPos - target).length();
+
+        // 保持距离不变，但根据窗口调整FOV
+        float windowAspect = static_cast<float>(windowWidth) / windowHeight;
+        float fovAdjustment = 1.0f;
+
+        if (windowAspect > 2.0f) {
+          // 超宽屏，增加FOV
+          fovAdjustment = 1.0f + (windowAspect - 2.0f) * 0.1f;
+        } else if (windowAspect < 0.5f) {
+          // 超高屏，增加FOV
+          fovAdjustment = 1.0f + (0.5f - windowAspect) * 0.2f;
+        }
+
+        float adjustedFov = settings.baseFOV * fovAdjustment;
+        adjustedFov = std::clamp(adjustedFov, settings.minFOV, settings.maxFOV);
+
+        m_camera.setFov(adjustedFov);
+        m_camera.setAspectRatio(windowAspect);
+      }
+      break;
+      case DisplayMode3D::BestFit: {
+        // 最佳适应模式：计算最佳相机参数
+        auto params = calculateOptimalCameraParams(windowWidth, windowHeight);
+
+        if (!settings.preserveUserRotation) {
+          // 不保持用户旋转，完全重置到最佳位置
+          m_camera.setPosition(params.position);
+        } else {
+          // 保持用户的旋转角度，只调整距离
+          QVector3D target = m_camera.getTarget();
+          QVector3D currentDir = (m_camera.getPosition() - target).normalized();
+          m_camera.setPosition(target + currentDir * params.distance);
+        }
+
+        m_camera.setFov(params.fov);
+        m_camera.setAspectRatio(static_cast<float>(windowWidth) / windowHeight);
+      }
+      break;
+      case DisplayMode3D::SmartHybrid: {
+        // 智能混合模式：只在窗口变化较大时调整
+        static int lastWidth = windowWidth;
+        static int lastHeight = windowHeight;
+
+        float widthChange = std::abs(windowWidth - lastWidth) / static_cast<float>(lastWidth);
+        float heightChange = std::abs(windowHeight - lastHeight) / static_cast<float>(lastHeight);
+
+        // 只有当窗口变化超过20%时才进行调整
+        if (widthChange > 0.2f || heightChange > 0.2f) {
+          // 进行适度的FOV调整
+          int minDimension = std::min(windowWidth, windowHeight);
+          float fovAdjustment = 1.0f;
+
+          if (minDimension < 400) {
+            fovAdjustment = 1.0f + (400 - minDimension) * 0.001f * settings.adaptiveSensitivity;
+          } else if (minDimension > 800) {
+            fovAdjustment = 1.0f - (minDimension - 800) * 0.0005f * settings.adaptiveSensitivity;
+          }
+
+          float newFov = settings.baseFOV * fovAdjustment;
+          newFov = std::clamp(newFov, settings.minFOV, settings.maxFOV);
+          m_camera.setFov(newFov);
+        }
+
+        lastWidth = windowWidth;
+        lastHeight = windowHeight;
+        m_camera.setAspectRatio(static_cast<float>(windowWidth) / windowHeight);
+      }
+      break;
+      case DisplayMode3D::KeepAspectRatio: {
+        // 锁定纵横比模式：保持3D场景的原始比例
+        float targetAspect = 4.0f / 3.0f; // 假设目标纵横比为4:3
+        float windowAspect = static_cast<float>(windowWidth) / windowHeight;
+
+        // 根据纵横比差异调整FOV，但保持场景比例
+        if (std::abs(windowAspect - targetAspect) > 0.1f) {
+          float fovAdjustment = targetAspect / windowAspect;
+          fovAdjustment = std::clamp(fovAdjustment, 0.7f, 1.5f);
+
+          float adjustedFov = settings.baseFOV * fovAdjustment;
+          adjustedFov = std::clamp(adjustedFov, settings.minFOV, settings.maxFOV);
+          m_camera.setFov(adjustedFov);
+        }
+
+        m_camera.setAspectRatio(windowAspect);
+      }
+      break;
+    }
+  }
+
+
+  Coordinate3D::CameraParams Coordinate3D::calculateOptimalCameraParams(int windowWidth, int windowHeight) {
+    CameraParams params;
+    float size = m_config.size;
+    const auto &settings = m_config.displaySettings;
+    // 计算最佳观察距离（基于坐标系大小和窗口尺寸）
+    int minDimension = std::min(windowWidth, windowHeight);
+    float distanceMultiplier = 1.0f;
+    if (minDimension < 300) {
+      distanceMultiplier = 2.5f; // 小窗口，距离远一些
+    } else if (minDimension < 600) {
+      distanceMultiplier = 2.0f;
+    } else if (minDimension > 1200) {
+      distanceMultiplier = 1.5f; // 大窗口，可以近一些
+    } else {
+      distanceMultiplier = 1.8f;
+    }
+    params.distance = size * distanceMultiplier;
+    // 计算最佳FOV
+    float windowAspect = static_cast<float>(windowWidth) / windowHeight;
+    params.fov = settings.baseFOV;
+    if (windowAspect > 2.0f) {
+      // 超宽屏
+      params.fov = settings.baseFOV * 1.2f;
+    } else if (windowAspect < 0.6f) {
+      // 超高屏
+      params.fov = settings.baseFOV * 1.3f;
+    }
+    params.fov = std::clamp(params.fov, settings.minFOV, settings.maxFOV);
+    // 计算最佳相机位置（保持一个好的观察角度）
+    float angle = 45.0f; // 默认45度角观察
+    float height = params.distance * std::sin(qDegreesToRadians(angle));
+    float horizontal = params.distance * std::cos(qDegreesToRadians(angle));
+    QVector3D target = QVector3D(size / 2, size / 2, size / 2);
+    params.position = target + QVector3D(horizontal, horizontal, height);
+
+    return params;
+  }
+
 
   // 事件处理
   void Coordinate3D::mousePressEvent(QMouseEvent *event) {

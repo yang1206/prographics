@@ -28,6 +28,51 @@ namespace ProGraphics {
 
   public:
     /**
+         * @brief 3D显示模式枚举
+         *
+         * 定义3D坐标系的相机行为和显示策略
+         */
+    enum class DisplayMode3D {
+      /**
+       * @brief 自由视角模式（默认）
+       * 用户完全控制相机，系统不做自动调整
+       * 适合需要精确控制视角的场景
+       */
+      FreeView,
+      /**
+       * @brief 自适应FOV模式
+       * 根据窗口大小自动调整视野角度，保持内容完整可见
+       * 小窗口使用更大FOV，大窗口使用更小FOV获得更好细节
+       */
+      AdaptiveFOV,
+      /**
+       * @brief 固定视距模式
+       * 保持相机到目标的距离不变，但会调整角度和FOV
+       * 适合需要保持观察距离一致性的场景
+       */
+      FixedDistance,
+      /**
+       * @brief 最佳适应模式
+       * 自动调整相机位置和FOV，确保坐标系在任何窗口大小下都完整可见
+       * 会覆盖用户的手动调整
+       */
+      BestFit,
+      /**
+       * @brief 智能混合模式
+       * 结合用户控制和自动调整，在保持用户偏好的同时进行必要的适应
+       * 只在窗口变化较大时进行调整
+       */
+      SmartHybrid,
+      /**
+       * @brief 锁定纵横比模式
+       * 保持3D场景的纵横比不变，可能在窗口中留有空白
+       * 类似2D的KeepAspectRatio模式
+       */
+      KeepAspectRatio
+    };
+
+
+    /**
      * @brief 单个轴的配置结构
      */
     struct AxisConfig {
@@ -54,6 +99,16 @@ namespace ProGraphics {
     struct Config {
       float size = 5.0f; ///< 坐标系整体大小
       bool enabled = true; ///< 坐标系是否启用
+      DisplayMode3D displayMode = DisplayMode3D::FreeView;
+
+      struct DisplaySettings {
+        float baseFOV = 50.0f; ///< 基础视野角度
+        float minFOV = 20.0f; ///< 最小视野角度
+        float maxFOV = 90.0f; ///< 最大视野角度
+        float baseDistance = 15.0f; ///< 基础观察距离
+        float adaptiveSensitivity = 1.0f; ///< 自适应敏感度 (0.1-2.0)
+        bool preserveUserRotation = true; ///< 是否保持用户的旋转设置
+      } displaySettings;
 
       /**
        * @brief 轴线配置组
@@ -233,6 +288,35 @@ namespace ProGraphics {
       update();
     }
 
+    /**
+    * @brief 设置3D显示模式
+    * @param mode 显示模式
+    */
+    void setDisplayMode(DisplayMode3D mode);
+
+    /**
+        * @brief 获取当前3D显示模式
+        * @return 当前显示模式
+        */
+    DisplayMode3D getDisplayMode() const { return m_config.displayMode; }
+    /**
+        * @brief 设置显示参数
+        * @param settings 显示设置
+        */
+    void setDisplaySettings(const Config::DisplaySettings &settings);
+
+    /**
+     * @brief 获取显示参数
+     * @return 当前显示设置
+     */
+    const Config::DisplaySettings &getDisplaySettings() const { return m_config.displaySettings; }
+
+    /**
+     * @brief 重置相机到最佳观察位置
+     * 根据当前显示模式调整相机参数
+     */
+    void resetCameraToOptimalView();
+
     Camera camera() {
       return m_camera;
     }
@@ -305,6 +389,25 @@ namespace ProGraphics {
      * @brief 更新刻度系统
      */
     void updateTickSystem();
+
+    /**
+     * @brief 根据显示模式调整相机
+     */
+    void adjustCameraForDisplayMode();
+
+    /**
+     * @brief 计算最佳相机参数
+     * @param windowWidth 窗口宽度
+     * @param windowHeight 窗口高度
+     * @return 建议的相机参数 {position, fov, distance}
+     */
+    struct CameraParams {
+      QVector3D position;
+      float fov;
+      float distance;
+    };
+
+    CameraParams calculateOptimalCameraParams(int windowWidth, int windowHeight);
 
   private:
     Config m_config; ///< 当前配置

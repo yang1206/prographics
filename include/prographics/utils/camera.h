@@ -186,6 +186,10 @@ namespace ProGraphics {
     // 跟随相机特有操作
     void setTarget(const QVector3D &target);
 
+    QVector3D getTarget() const {
+      return m_targetPosition;
+    };
+
     void setFollowDistance(float distance);
 
     void setFollowHeight(float height);

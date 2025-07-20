@@ -26,6 +26,40 @@ namespace ProGraphics {
 
   public:
     /**
+     * @brief 显示模式枚举
+     *
+     * 定义坐标系在窗口中的显示和缩放行为
+     */
+    enum class DisplayMode {
+      /**
+       * @brief 拉伸模式
+       * 坐标系完全填满窗口，随窗口形状变化而拉伸变形
+       */
+      Stretch,
+      /**
+       * @brief 等比例缩放模式（保持纵横比）
+       * 坐标系保持原始比例，可能在窗口中留有空白区域
+       */
+      KeepAspectRatio,
+      /**
+       * @brief 适应宽度模式
+       * 以窗口宽度为准进行缩放，高度可能超出或不足
+       */
+      FitWidth,
+      /**
+       * @brief 适应高度模式
+       * 以窗口高度为准进行缩放，宽度可能超出或不足
+       */
+      FitHeight,
+      /**
+       * @brief 智能适应模式
+       * 根据窗口和内容的比例关系，自动选择最佳的适应方式
+       */
+      SmartFit
+    };
+
+
+    /**
      * @brief 单个轴的配置结构
      */
     struct AxisConfig {
@@ -52,7 +86,7 @@ namespace ProGraphics {
     struct Config {
       float size = 5.0f; ///< 坐标系整体大小
       bool enabled = true; ///< 坐标系是否启用
-
+      DisplayMode displayMode = DisplayMode::KeepAspectRatio;
       /**
        * @brief 轴线配置组
        */
@@ -361,6 +395,18 @@ namespace ProGraphics {
       m_backgroundcolor = color;
       update();
     }
+
+    /**
+    * @brief 设置显示模式
+    * @param mode 显示模式
+    */
+    void setDisplayMode(DisplayMode mode);
+
+    /**
+        * @brief 获取当前显示模式
+        * @return 当前显示模式
+        */
+    DisplayMode getDisplayMode() const { return m_config.displayMode; }
 
     Camera camera() {
       return m_camera;
