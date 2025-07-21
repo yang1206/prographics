@@ -443,8 +443,6 @@ namespace ProGraphics {
   }
 
   void Coordinate2D::setTicksOffset(char axis, const QVector3D &offset) {
-    if (!m_tickSystem) return;
-
     if (axis == 'x') {
       m_config.ticks.x.offset = offset;
     } else if (axis == 'y') {

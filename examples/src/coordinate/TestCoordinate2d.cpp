@@ -41,8 +41,8 @@ void TestCoordinate2d::setupCoordinateSystem() {
     m_coordinateSystem->setAxisNameLocation('z',
                                             ProGraphics::AxisName::Location::End);
 
-    m_coordinateSystem->setTicksOffset('x', QVector3D(0.4f, 0.8f, 0));
-    m_coordinateSystem->setTicksOffset('y', QVector3D(0.4f, 0.8f, 0));
+    // m_coordinateSystem->setTicksOffset('x', QVector3D(0.4f, 0.8f, 0));
+    // m_coordinateSystem->setTicksOffset('y', QVector3D(0.4f, 0.8f, 0));
 
 
     // 设置轴名称和刻度的可见性
