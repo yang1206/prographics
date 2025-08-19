@@ -21,9 +21,9 @@ void TestCoordinate3d::setupCoordinateSystem() {
 
 
     // 设置各轴的刻度范围
-    m_coordinateSystem->setTicksRange('x', 0, 360, 45);
-    m_coordinateSystem->setTicksRange('y', -75, -30, 5);
-    m_coordinateSystem->setTicksRange('z', 0, 5, 1);
+    m_coordinateSystem->setTicksRange('x', 0, 360, 90);
+    m_coordinateSystem->setTicksRange('y', -75, -30, 10);
+    m_coordinateSystem->setTicksRange('z', 0, 5, 2.5f);
 
 
     // 设置轴名称的位置和样式

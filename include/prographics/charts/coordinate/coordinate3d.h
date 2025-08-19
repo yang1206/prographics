@@ -148,19 +148,13 @@ namespace ProGraphics {
       struct {
         bool enabled = true; ///< 轴名称系统是否启用
         AxisName::NameConfig x{
-          true, "X", "", QVector3D(0.5f, 0.0f, 0.5f),
-          0.1f, AxisName::Location::End,
-          TextRenderer::TextStyle()
+          true, "X", "", QVector3D(0.5f, 0.0f, 0.5f), 0.1f, AxisName::Location::End
         }; ///< X轴名称配置
         AxisName::NameConfig y{
-          true, "Y", "", QVector3D(-0.5f, 0.5f, 0.0f),
-          0.1f, AxisName::Location::End,
-          TextRenderer::TextStyle()
+          true, "Y", "", QVector3D(-0.5f, 0.5f, 0.0f), 0.1f, AxisName::Location::End
         }; ///< Y轴名称配置
         AxisName::NameConfig z{
-          true, "Z", "", QVector3D(-0.5f, 0.0f, 0.0f),
-          0.1f, AxisName::Location::Middle,
-          TextRenderer::TextStyle()
+          true, "Z", "", QVector3D(-0.5f, 0.0f, 0.0f), 0.1f, AxisName::Location::Middle
         }; ///< Z轴名称配置
       } names;
 

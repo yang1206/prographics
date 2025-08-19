@@ -77,7 +77,10 @@ namespace ProGraphics {
       float spacing = 0.5f; ///< 网格线间距
       QVector4D majorColor{0.7f, 0.7f, 0.7f, 0.6f}; ///< 主网格线颜色
       QVector4D minorColor{0.6f, 0.6f, 0.6f, 0.3f}; ///< 次网格线颜色
-      Grid::SineWaveConfig sineWave;
+      Grid::SineWaveConfig sineWave{
+        true,
+        QVector4D{0.5f, 0.5f, 0.5f, 1.0f}
+      };
     };
 
     /**
@@ -113,14 +116,16 @@ namespace ProGraphics {
           true,
           "X",
           "",
-          QVector3D(0.1f, -0.1f, 0.0f),
+          QVector3D(0.0f, -0.3f, 0.0f),
+          AxisName::Location::Middle
         }; ///< X轴的名称配置
 
         AxisName::NameConfig y = {
           true,
           "Y",
           "",
-          QVector3D(-0.1f, 0.1f, 0.0f),
+          QVector3D(-0.2f, 0.3f, 0.0f),
+          AxisName::Location::End
         }; ///< Y轴的名称配置
       } names;
 
@@ -131,12 +136,14 @@ namespace ProGraphics {
         bool enabled = true; ///< 刻度系统是否启用
         AxisTicks::TickConfig x{
           true,
-          QVector3D(0.0f, -0.2f, 0.0f)
+          QVector3D(0.0f, -0.2f, 0.0f),
+          AxisTicks::TickConfig::Range{0.0f, 360.0f, 90.0f}
         }; ///< X轴的刻度配置
 
         AxisTicks::TickConfig y{
           true,
-          QVector3D(-0.1f, 0.0f, 0.0f)
+          QVector3D(-0.2f, 0.0f, 0.0f),
+          AxisTicks::TickConfig::Range{-75, -30, 5}
         }; ///< Y轴的刻度配置
       } ticks;
 

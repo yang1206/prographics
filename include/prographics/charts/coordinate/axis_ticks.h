@@ -26,7 +26,6 @@ namespace ProGraphics {
       float margin = 0.5f; ///< 刻度与轴线的间距
       TextRenderer::TextStyle style; ///< 刻度文本的渲染样式
       Qt::Alignment alignment = Qt::AlignCenter; ///< 刻度文本的对齐方式
-
       /**
        * @brief 刻度值格式化函数
        *
@@ -39,13 +38,43 @@ namespace ProGraphics {
       };
 
       /**
-       * @brief 刻度范围配置结构
-       */
+    * @brief 刻度范围配置结构
+    */
       struct Range {
-        float min = 0.0f; ///< 最小刻度值
-        float max = 5.0f; ///< 最大刻度值
-        float step = 2.0f; ///< 主刻度间隔
+        float min; ///< 最小刻度值
+        float max; ///< 最大刻度值
+        float step; ///< 主刻度间隔
+
+        Range();
+
+        Range(float min, float max, float step);
       } range;
+
+      TickConfig() = default;
+
+      TickConfig(const Range &r) : range(r) {
+      }
+
+      TickConfig(bool visible, const QVector3D &offset, const Range &r = Range{}) : visible(visible), offset(offset),
+        range(r) {
+      }
+
+      TickConfig(bool visible, const QVector3D &offset, const TextRenderer::TextStyle &style,
+                 const Range &r = Range{}) : visible(visible), offset(offset), style(style),
+                                             range(r) {
+      }
+
+      TickConfig(bool visible, const QVector3D &offset, const Qt::Alignment &alignment,
+                 const Range &r = Range{}) : visible(visible), offset(offset), alignment(alignment),
+                                             range(r) {
+      }
+
+      TickConfig(bool visible, const QVector3D &offset, float margin, const TextRenderer::TextStyle &style,
+                 Qt::Alignment alignment,
+                 const Range &r = Range{})
+        : visible(visible), offset(offset), margin(margin), style(style),
+          alignment(alignment), range(r) {
+      }
     };
 
 

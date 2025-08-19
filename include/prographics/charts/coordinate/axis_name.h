@@ -31,23 +31,43 @@ namespace ProGraphics {
      * @brief 单个轴名称的配置结构
      */
     struct NameConfig {
-      bool visible = true; ///< 是否显示该轴的名称
+      bool visible; ///< 是否显示该轴的名称
       QString text; ///< 轴名称文本
       QString unit; ///< 单位文本，将显示在名称后的括号中
-      QVector3D offset{0.0f, 0.0f, 0.0f}; ///< 相对于基准位置的三维偏移量
-      float gap = 0.1f; ///< 与轴线端点的间距
-      Location location = Location::End; ///< 名称在轴上的位置类型
+      QVector3D offset; ///< 相对于基准位置的三维偏移量
+      float gap; ///< 与轴线端点的间距
+      Location location; ///< 名称在轴上的位置类型
       TextRenderer::TextStyle style; ///< 文本渲染样式
+
+      // 构造函数
+      NameConfig();
+
+      NameConfig(bool visible, const QString &text, const QString &unit = QString());
+
+      NameConfig(bool visible, const QString &text, const QString &unit, const QVector3D &offset);
+
+      NameConfig(bool visible, const QString &text, const QString &unit,
+                 const QVector3D &offset, float gap = 0.1f,
+                 Location location = Location::End);
+
+      NameConfig(bool visible, const QString &text, const QString &unit,
+                 const QVector3D &offset,
+                 Location location = Location::End);
     };
 
     /**
-    * @brief 整体配置结构
-    */
+   * @brief 整体配置结构
+   */
     struct Config {
-      float size = 5.0f; ///< 坐标系整体大小
+      float size; ///< 坐标系整体大小
       NameConfig x; ///< X轴名称配置
       NameConfig y; ///< Y轴名称配置
       NameConfig z; ///< Z轴名称配置
+
+      // 构造函数
+      Config();
+
+      Config(float size);
     };
 
     AxisName();
@@ -109,21 +129,8 @@ namespace ProGraphics {
      *
      * 包含所有轴的默认名称配置
      */
-    Config m_config = {
-      0.5f,
-      {
-        true, "X", "", QVector3D(0.0f, 1.5f, 0.0f), 0.1f, Location::End,
-        TextRenderer::TextStyle()
-      },
-      {
-        true, "Y", "", QVector3D(-0.5f, 0.5f, 0.0f), 0.1f, Location::End,
-        TextRenderer::TextStyle()
-      },
-      {
-        true, "Z", "", QVector3D(-0.5f, 0.0f, 0.5f), 0.1f, Location::End,
-        TextRenderer::TextStyle()
-      }
-    };
+    Config m_config;
+
     std::unique_ptr<TextRenderer> m_textRenderer;
     TextRenderer::Label *m_xName = nullptr;
     TextRenderer::Label *m_yName = nullptr;

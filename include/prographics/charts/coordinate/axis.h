@@ -20,22 +20,32 @@ namespace ProGraphics {
      * @brief 坐标轴配置结构
      */
     struct Config {
-      float length = 5.0f; ///< 坐标轴长度
+      float length; ///< 坐标轴长度
 
       // X轴配置
-      bool xAxisVisible = true; ///< X轴是否可见
-      float xAxisThickness = 2.0f; ///< X轴线条粗细
-      QVector4D xAxisColor{1.0f, 0.0f, 0.0f, 1.0f}; ///< X轴颜色（默认红色）
+      bool xAxisVisible; ///< X轴是否可见
+      float xAxisThickness; ///< X轴线条粗细
+      QVector4D xAxisColor; ///< X轴颜色（默认红色）
 
       // Y轴配置
-      bool yAxisVisible = true; ///< Y轴是否可见
-      float yAxisThickness = 2.0f; ///< Y轴线条粗细
-      QVector4D yAxisColor{0.0f, 1.0f, 0.0f, 1.0f}; ///< Y轴颜色（默认绿色）
+      bool yAxisVisible; ///< Y轴是否可见
+      float yAxisThickness; ///< Y轴线条粗细
+      QVector4D yAxisColor; ///< Y轴颜色（默认绿色）
 
       // Z轴配置
-      bool zAxisVisible = true; ///< Z轴是否可见
-      float zAxisThickness = 2.0f; ///< Z轴线条粗细
-      QVector4D zAxisColor{0.0f, 0.0f, 1.0f, 1.0f}; ///< Z轴颜色（默认蓝色）
+      bool zAxisVisible; ///< Z轴是否可见
+      float zAxisThickness; ///< Z轴线条粗细
+      QVector4D zAxisColor; ///< Z轴颜色（默认蓝色）
+
+      // 构造函数
+      Config();
+
+      Config(float length);
+
+      Config(float length,
+             bool xAxisVisible, float xAxisThickness, const QVector4D &xAxisColor,
+             bool yAxisVisible, float yAxisThickness, const QVector4D &yAxisColor,
+             bool zAxisVisible, float zAxisThickness, const QVector4D &zAxisColor);
     };
 
     Axis();

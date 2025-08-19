@@ -1,6 +1,58 @@
 ﻿#include "prographics/charts/coordinate/grid.h"
 
 namespace ProGraphics {
+  Grid::SineWaveConfig::SineWaveConfig()
+    : visible(false),
+      thickness(2.0f),
+      color(0.96f, 0.96f, 0.96f, 0.8f),
+      amplitude(1.0f) {
+  }
+
+  Grid::SineWaveConfig::SineWaveConfig(bool visible, float thickness, const QVector4D &color, float amplitude)
+    : visible(visible),
+      thickness(thickness),
+      color(color),
+      amplitude(amplitude) {
+  }
+
+  Grid::SineWaveConfig::SineWaveConfig(bool visible, const QVector4D &color) : visible(visible), color(color) {
+  }
+
+  // Grid::PlaneConfig 构造函数实现
+  Grid::PlaneConfig::PlaneConfig()
+    : visible(true),
+      thickness(1.0f),
+      spacing(1.0f),
+      majorColor(0.5f, 0.5f, 0.5f, 0.5f),
+      minorColor(0.3f, 0.3f, 0.3f, 0.3f),
+      sineWave() {
+  }
+
+  Grid::PlaneConfig::PlaneConfig(bool visible, float thickness, float spacing, const QVector4D &majorColor,
+                                 const QVector4D &minorColor)
+    : visible(visible),
+      thickness(thickness),
+      spacing(spacing),
+      majorColor(majorColor),
+      minorColor(minorColor),
+      sineWave() {
+  }
+
+  // Grid::Config 构造函数实现
+  Grid::Config::Config()
+    : size(5.0f),
+      xy(true, 1.0f, 1.0f, QVector4D(0.7f, 0.7f, 0.7f, 0.6f), QVector4D(0.6f, 0.6f, 0.6f, 0.3f)),
+      xz(true, 1.0f, 1.0f, QVector4D(0.7f, 0.7f, 0.7f, 0.6f), QVector4D(0.6f, 0.6f, 0.6f, 0.3f)),
+      yz(true, 1.0f, 0.5f, QVector4D(0.7f, 0.7f, 0.7f, 0.6f), QVector4D(0.6f, 0.6f, 0.6f, 0.3f)) {
+  }
+
+  Grid::Config::Config(float size) : size(size) {
+    xy = PlaneConfig(true, 1.0f, 1.0f, QVector4D(0.7f, 0.7f, 0.7f, 0.6f), QVector4D(0.6f, 0.6f, 0.6f, 0.3f));
+    xz = PlaneConfig(true, 1.0f, 1.0f, QVector4D(0.7f, 0.7f, 0.7f, 0.6f), QVector4D(0.6f, 0.6f, 0.6f, 0.3f));
+    yz = PlaneConfig(true, 1.0f, 0.5f, QVector4D(0.7f, 0.7f, 0.7f, 0.6f), QVector4D(0.6f, 0.6f, 0.6f, 0.3f));
+  }
+
+
   Grid::Grid() {
     m_batchRenderer = std::make_unique<Primitive2DBatch>();
 

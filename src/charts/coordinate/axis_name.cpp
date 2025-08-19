@@ -4,6 +4,67 @@
 #include "prographics/charts/coordinate/axis_name.h"
 
 namespace ProGraphics {
+  AxisName::NameConfig::NameConfig()
+    : visible(true),
+      text(),
+      unit(), offset(0.0f, 0.0f, 0.0f),
+      gap(0.1f),
+      location(Location::End),
+      style() {
+  }
+
+  AxisName::NameConfig::NameConfig(bool visible, const QString &text, const QString &unit, const QVector3D &offset)
+    : visible(visible),
+      text(text),
+      unit(unit),
+      offset(offset),
+      location(Location::End) {
+  }
+
+  AxisName::NameConfig::NameConfig(bool visible, const QString &text, const QString &unit)
+    : visible(visible),
+      text(text),
+      unit(unit), offset(0.0f, 0.0f, 0.0f),
+      gap(0.1f),
+      location(Location::End),
+      style() {
+  }
+
+  AxisName::NameConfig::NameConfig(bool visible, const QString &text, const QString &unit, const QVector3D &offset,
+                                   float gap,
+                                   Location location)
+    : visible(visible),
+      text(text),
+      unit(unit), offset(offset),
+      gap(gap),
+      location(location),
+      style() {
+  }
+
+  AxisName::NameConfig::NameConfig(bool visible, const QString &text, const QString &unit,
+                                   const QVector3D &offset,
+                                   Location location) : visible(visible),
+                                                        text(text),
+                                                        unit(unit),
+                                                        offset(offset),
+                                                        location(location) {
+  }
+
+  // AxisName::Config 构造函数实现
+  AxisName::Config::Config()
+    : size(5.0f),
+      x(true, "X", "", QVector3D(0.0f, 1.5f, 0.0f), 0.1f, Location::End),
+      y(true, "Y", "", QVector3D(-0.5f, 0.5f, 0.0f), 0.1f, Location::End),
+      z(true, "Z", "", QVector3D(-0.5f, 0.0f, 0.5f), 0.1f, Location::End) {
+  }
+
+  AxisName::Config::Config(float size) : size(size) {
+    // 使用默认的轴配置
+    x = NameConfig(true, "X", "", QVector3D(0.0f, 1.5f, 0.0f), 0.1f, Location::End);
+    y = NameConfig(true, "Y", "", QVector3D(-0.5f, 0.5f, 0.0f), 0.1f, Location::End);
+    z = NameConfig(true, "Z", "", QVector3D(-0.5f, 0.0f, 0.5f), 0.1f, Location::End);
+  }
+
   AxisName::AxisName() { m_textRenderer = std::make_unique<TextRenderer>(); }
 
   AxisName::~AxisName() = default;

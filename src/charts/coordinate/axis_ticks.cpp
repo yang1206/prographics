@@ -5,6 +5,14 @@
 #include "prographics/charts/coordinate/axis_ticks.h"
 
 namespace ProGraphics {
+  AxisTicks::TickConfig::Range::Range() : min(0.0f), max(5.0f), step(2.0f) {
+  }
+
+  AxisTicks::TickConfig::Range::Range(float min, float max, float step)
+    : min(min), max(max), step(step) {
+  }
+
+
   AxisTicks::AxisTicks() { m_textRenderer = std::make_unique<TextRenderer>(); }
 
   AxisTicks::~AxisTicks() = default;
@@ -48,33 +56,33 @@ namespace ProGraphics {
     int decimalPlaces = 0;
     float step = range.step;
     if (step < 1.0f) {
-        // 计算步长需要的小数位数
-        decimalPlaces = std::max(1, static_cast<int>(-std::floor(std::log10(step))) + 1);
+      // 计算步长需要的小数位数
+      decimalPlaces = std::max(1, static_cast<int>(-std::floor(std::log10(step))) + 1);
     }
 
     for (int i = 0; i <= tickCount; ++i) {
-        float value = range.min + i * range.step;
-        QVector3D position = calculateTickPosition(axis, value, config.offset);
-        
-        // 使用自定义格式化函数或根据步长自动确定小数位数
-        QString text;
-        if (config.formatter) {
-            text = config.formatter(value);
-        } else {
-            // 根据步长自动确定小数位数
-            text = QString::number(value, 'f', decimalPlaces);
-            // 移除尾随的0
-            while (text.contains('.') && text.endsWith('0')) {
-                text.chop(1);
-            }
-            if (text.endsWith('.')) {
-                text.chop(1);
-            }
-        }
+      float value = range.min + i * range.step;
+      QVector3D position = calculateTickPosition(axis, value, config.offset);
 
-        auto *label = m_textRenderer->addLabel(text, position, config.style);
-        m_textRenderer->setAlignment(label, config.alignment);
-        m_tickLabels.push_back(label);
+      // 使用自定义格式化函数或根据步长自动确定小数位数
+      QString text;
+      if (config.formatter) {
+        text = config.formatter(value);
+      } else {
+        // 根据步长自动确定小数位数
+        text = QString::number(value, 'f', decimalPlaces);
+        // 移除尾随的0
+        while (text.contains('.') && text.endsWith('0')) {
+          text.chop(1);
+        }
+        if (text.endsWith('.')) {
+          text.chop(1);
+        }
+      }
+
+      auto *label = m_textRenderer->addLabel(text, position, config.style);
+      m_textRenderer->setAlignment(label, config.alignment);
+      m_tickLabels.push_back(label);
     }
   }
 

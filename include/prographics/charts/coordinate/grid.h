@@ -7,26 +7,44 @@ namespace ProGraphics {
   class Grid {
   public:
     struct SineWaveConfig {
-      bool visible = false;
-      float thickness = 2.0f;
-      QVector4D color{0.96f, 0.96f, 0.96f, 0.8f}; // 默认白色，透明度0.8
-      float amplitude = 1.0f; // 振幅
+      bool visible;
+      float thickness;
+      QVector4D color; // 默认白色，透明度0.8
+      float amplitude; // 振幅
+
+      // 构造函数
+      SineWaveConfig();
+
+      SineWaveConfig(bool visible, float thickness, const QVector4D &color, float amplitude);
+
+      SineWaveConfig(bool visible, const QVector4D &color);
     };
 
     struct PlaneConfig {
-      bool visible = true;
-      float thickness = 1.0f;
-      float spacing = 1.0f;
-      QVector4D majorColor{0.5f, 0.5f, 0.5f, 0.5f};
-      QVector4D minorColor{0.3f, 0.3f, 0.3f, 0.3f};
+      bool visible;
+      float thickness;
+      float spacing;
+      QVector4D majorColor;
+      QVector4D minorColor;
       SineWaveConfig sineWave;
+
+      // 构造函数
+      PlaneConfig();
+
+      PlaneConfig(bool visible, float thickness, float spacing,
+                  const QVector4D &majorColor, const QVector4D &minorColor);
     };
 
     struct Config {
-      float size = 5.0f;
+      float size;
       PlaneConfig xy; // XY平面配置
       PlaneConfig xz; // XZ平面配置
       PlaneConfig yz; // YZ平面配置
+
+      // 构造函数
+      Config();
+
+      Config(float size);
     };
 
     Grid();
