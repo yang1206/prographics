@@ -77,26 +77,27 @@ void ThreeDCoordinate::initializeGLObjects() {
 void ThreeDCoordinate::initializeAxes() {
   const float axisLength = 8.0f;
   std::vector<float> vertices = {
-      // 位置                // 颜色
-      // X轴（红色）
-      0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,       // 起点
-      axisLength, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // 终点
+    // 位置                // 颜色
+    // X轴（红色）
+    0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // 起点
+    axisLength, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // 终点
 
-      // Y轴（绿色）
-      0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, axisLength, 0.0f, 0.0f,
-      1.0f, 0.0f, 1.0f,
+    // Y轴（绿色）
+    0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, axisLength, 0.0f, 0.0f,
+    1.0f, 0.0f, 1.0f,
 
-      // Z轴（蓝色）
-      0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, axisLength, 0.0f,
-      0.0f, 1.0f, 1.0f};
+    // Z轴（蓝色）
+    0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, axisLength, 0.0f,
+    0.0f, 1.0f, 1.0f
+  };
 
   setupComponent(m_axes, vertices);
 }
 
 void ThreeDCoordinate::initializeGrids() {
   const float size = 5.0f;
-  const float step = 1.0f;         // 网格间距
-  const float alpha_major = 0.5f;  // 主网格线透明度
+  const float step = 1.0f; // 网格间距
+  const float alpha_major = 0.5f; // 主网格线透明度
   const float alpha_minor = 0.15f; // 次网格线透明度
 
   // 生成网格线顶点数据的辅助函数
@@ -114,9 +115,11 @@ void ThreeDCoordinate::initializeGrids() {
 
       // 添加线段顶点
       vertices.insert(vertices.end(),
-                      {start.x(), start.y(), start.z(), color.x(), color.y(),
-                       color.z(), alpha, end.x(), end.y(), end.z(), color.x(),
-                       color.y(), color.z(), alpha});
+                      {
+                        start.x(), start.y(), start.z(), color.x(), color.y(),
+                        color.z(), alpha, end.x(), end.y(), end.z(), color.x(),
+                        color.y(), color.z(), alpha
+                      });
     }
 
     // 生成平行于up方向的线
@@ -126,9 +129,11 @@ void ThreeDCoordinate::initializeGrids() {
       QVector3D end = start + up * size;
 
       vertices.insert(vertices.end(),
-                      {start.x(), start.y(), start.z(), color.x(), color.y(),
-                       color.z(), alpha, end.x(), end.y(), end.z(), color.x(),
-                       color.y(), color.z(), alpha});
+                      {
+                        start.x(), start.y(), start.z(), color.x(), color.y(),
+                        color.z(), alpha, end.x(), end.y(), end.z(), color.x(),
+                        color.y(), color.z(), alpha
+                      });
     }
 
     return vertices;
@@ -138,7 +143,7 @@ void ThreeDCoordinate::initializeGrids() {
   std::vector<float> xyVertices =
       generateGridVertices(size, step / 2, QVector3D(0.0f, 0.0f, 1.0f), // 蓝色
                            QVector3D(1.0f, 0.0f, 0.0f), // right方向
-                           QVector3D(0.0f, 1.0f, 0.0f)  // up方向
+                           QVector3D(0.0f, 1.0f, 0.0f) // up方向
       );
   setupComponent(m_xyGrid, xyVertices);
 
@@ -146,7 +151,7 @@ void ThreeDCoordinate::initializeGrids() {
   std::vector<float> xzVertices =
       generateGridVertices(size, step / 2, QVector3D(0.0f, 1.0f, 0.0f), // 绿色
                            QVector3D(1.0f, 0.0f, 0.0f), // right方向
-                           QVector3D(0.0f, 0.0f, 1.0f)  // up方向
+                           QVector3D(0.0f, 0.0f, 1.0f) // up方向
       );
   setupComponent(m_xzGrid, xzVertices);
 
@@ -154,7 +159,7 @@ void ThreeDCoordinate::initializeGrids() {
   std::vector<float> yzVertices =
       generateGridVertices(size, step / 2, QVector3D(1.0f, 0.0f, 0.0f), // 红色
                            QVector3D(0.0f, 1.0f, 0.0f), // right方向
-                           QVector3D(0.0f, 0.0f, 1.0f)  // up方向
+                           QVector3D(0.0f, 0.0f, 1.0f) // up方向
       );
   setupComponent(m_yzGrid, yzVertices);
 }
@@ -162,8 +167,8 @@ void ThreeDCoordinate::initializeGrids() {
 void ThreeDCoordinate::initializeTicks() {
   const float axisLength = 5.0f;
   const float tickSize = 0.1f; // 刻度线长度
-  const float step = 1.0f;     // 刻度间距
-  const float alpha = 0.8f;    // 刻度线透明度
+  const float step = 1.0f; // 刻度间距
+  const float alpha = 0.8f; // 刻度线透明度
 
   // 生成刻度线顶点的辅助函数
   auto generateTickVertices = [alpha](float axisLength, float tickSize,
@@ -188,17 +193,21 @@ void ThreeDCoordinate::initializeTicks() {
       QVector3D start1 = basePos;
       QVector3D end1 = basePos + tickDir1 * currentTickSize;
       vertices.insert(vertices.end(),
-                      {start1.x(), start1.y(), start1.z(), color.x(), color.y(),
-                       color.z(), currentAlpha, end1.x(), end1.y(), end1.z(),
-                       color.x(), color.y(), color.z(), currentAlpha});
+                      {
+                        start1.x(), start1.y(), start1.z(), color.x(), color.y(),
+                        color.z(), currentAlpha, end1.x(), end1.y(), end1.z(),
+                        color.x(), color.y(), color.z(), currentAlpha
+                      });
 
       // 添加第二个方向的刻度线
       QVector3D start2 = basePos;
       QVector3D end2 = basePos + tickDir2 * currentTickSize;
       vertices.insert(vertices.end(),
-                      {start2.x(), start2.y(), start2.z(), color.x(), color.y(),
-                       color.z(), currentAlpha, end2.x(), end2.y(), end2.z(),
-                       color.x(), color.y(), color.z(), currentAlpha});
+                      {
+                        start2.x(), start2.y(), start2.z(), color.x(), color.y(),
+                        color.z(), currentAlpha, end2.x(), end2.y(), end2.z(),
+                        color.x(), color.y(), color.z(), currentAlpha
+                      });
     }
 
     return vertices;
@@ -206,28 +215,28 @@ void ThreeDCoordinate::initializeTicks() {
 
   // X轴刻度（红色）
   std::vector<float> xTickVertices = generateTickVertices(
-      axisLength, tickSize, step / 2, QVector3D(1, 0, 0), // 轴方向
-      QVector3D(0, 1, 0),                                 // 刻度方向1
-      QVector3D(0, 0, 1),                                 // 刻度方向2
-      QVector3D(1, 0, 0)                                  // 颜色
+    axisLength, tickSize, step / 2, QVector3D(1, 0, 0), // 轴方向
+    QVector3D(0, 1, 0), // 刻度方向1
+    QVector3D(0, 0, 1), // 刻度方向2
+    QVector3D(1, 0, 0) // 颜色
   );
   setupComponent(m_xTicks, xTickVertices);
 
   // Y轴刻度（绿色）
   std::vector<float> yTickVertices = generateTickVertices(
-      axisLength, tickSize, step / 2, QVector3D(0, 1, 0), // 轴方向
-      QVector3D(1, 0, 0),                                 // 刻度方向1
-      QVector3D(0, 0, 1),                                 // 刻度方向2
-      QVector3D(0, 1, 0)                                  // 颜色
+    axisLength, tickSize, step / 2, QVector3D(0, 1, 0), // 轴方向
+    QVector3D(1, 0, 0), // 刻度方向1
+    QVector3D(0, 0, 1), // 刻度方向2
+    QVector3D(0, 1, 0) // 颜色
   );
   setupComponent(m_yTicks, yTickVertices);
 
   // Z轴刻度（蓝色）
   std::vector<float> zTickVertices = generateTickVertices(
-      axisLength, tickSize, step / 2, QVector3D(0, 0, 1), // 轴方向
-      QVector3D(1, 0, 0),                                 // 刻度方向1
-      QVector3D(0, 1, 0),                                 // 刻度方向2
-      QVector3D(0, 0, 1)                                  // 颜色
+    axisLength, tickSize, step / 2, QVector3D(0, 0, 1), // 轴方向
+    QVector3D(1, 0, 0), // 刻度方向1
+    QVector3D(0, 1, 0), // 刻度方向2
+    QVector3D(0, 0, 1) // 颜色
   );
   setupComponent(m_zTicks, zTickVertices);
 }
@@ -237,24 +246,30 @@ void ThreeDCoordinate::initializePlanes() {
   const float alpha = 0.2f; // 平面透明度
 
   // XY平面（蓝色）
-  std::vector<float> xyVertices = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, alpha,
-                                   size, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, alpha,
-                                   0.0f, size, 0.0f, 0.0f, 0.0f, 1.0f, alpha,
-                                   size, size, 0.0f, 0.0f, 0.0f, 1.0f, alpha};
+  std::vector<float> xyVertices = {
+    0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, alpha,
+    size, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, alpha,
+    0.0f, size, 0.0f, 0.0f, 0.0f, 1.0f, alpha,
+    size, size, 0.0f, 0.0f, 0.0f, 1.0f, alpha
+  };
   setupComponent(m_xyPlane, xyVertices);
 
   // XZ平面（绿色）
-  std::vector<float> xzVertices = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, alpha,
-                                   size, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, alpha,
-                                   0.0f, 0.0f, size, 0.0f, 1.0f, 0.0f, alpha,
-                                   size, 0.0f, size, 0.0f, 1.0f, 0.0f, alpha};
+  std::vector<float> xzVertices = {
+    0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, alpha,
+    size, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, alpha,
+    0.0f, 0.0f, size, 0.0f, 1.0f, 0.0f, alpha,
+    size, 0.0f, size, 0.0f, 1.0f, 0.0f, alpha
+  };
   setupComponent(m_xzPlane, xzVertices);
 
   // YZ平面（红色）
-  std::vector<float> yzVertices = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, alpha,
-                                   0.0f, size, 0.0f, 1.0f, 0.0f, 0.0f, alpha,
-                                   0.0f, 0.0f, size, 1.0f, 0.0f, 0.0f, alpha,
-                                   0.0f, size, size, 1.0f, 0.0f, 0.0f, alpha};
+  std::vector<float> yzVertices = {
+    0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, alpha,
+    0.0f, size, 0.0f, 1.0f, 0.0f, 0.0f, alpha,
+    0.0f, 0.0f, size, 1.0f, 0.0f, 0.0f, alpha,
+    0.0f, size, size, 1.0f, 0.0f, 0.0f, alpha
+  };
   setupComponent(m_yzPlane, yzVertices);
 }
 
@@ -288,19 +303,19 @@ void ThreeDCoordinate::initializeLabels() {
       [this](const QString &text, const QVector3D &pos,
              const ProGraphics::TextRenderer::TextStyle &style, float offsetX,
              float offsetY) {
-        auto *label = m_textRenderer.addLabel(text, pos, style);
-        label->offsetX = offsetX;
-        label->offsetY = offsetY;
-        return label;
-      };
+    auto *label = m_textRenderer.addLabel(text, pos, style);
+    label->offsetX = offsetX;
+    label->offsetY = offsetY;
+    return label;
+  };
 
   // 添加坐标轴名称
   m_axisLabels.x.push_back(
-      createAxisLabel("X", QVector3D(axisLength + 0.3f, 0, 0), xStyle, 0, 15));
+    createAxisLabel("X", QVector3D(axisLength + 0.3f, 0, 0), xStyle, 0, 15));
   m_axisLabels.y.push_back(
-      createAxisLabel("Y", QVector3D(0, axisLength + 0.3f, 0), yStyle, -15, 0));
+    createAxisLabel("Y", QVector3D(0, axisLength + 0.3f, 0), yStyle, -15, 0));
   m_axisLabels.z.push_back(createAxisLabel(
-      "Z", QVector3D(0, 0, axisLength + 0.3f), zStyle, -15, 15));
+    "Z", QVector3D(0, 0, axisLength + 0.3f), zStyle, -15, 15));
 
   // 添加刻度标签
   for (float pos = 0; pos <= axisLength; pos += step) {
@@ -309,15 +324,15 @@ void ThreeDCoordinate::initializeLabels() {
 
       // X轴标签
       m_axisLabels.x.push_back(
-          createAxisLabel(text, QVector3D(pos, 0, 0), xStyle, 0, 15));
+        createAxisLabel(text, QVector3D(pos, 0, 0), xStyle, 0, 15));
 
       // Y轴标签
       m_axisLabels.y.push_back(
-          createAxisLabel(text, QVector3D(0, pos, 0), yStyle, -15, 0));
+        createAxisLabel(text, QVector3D(0, pos, 0), yStyle, -15, 0));
 
       // Z轴标签
       m_axisLabels.z.push_back(
-          createAxisLabel(text, QVector3D(0, 0, pos), zStyle, -15, 15));
+        createAxisLabel(text, QVector3D(0, 0, pos), zStyle, -15, 15));
     }
   }
 }
@@ -332,9 +347,9 @@ void ThreeDCoordinate::setupComponent(CoordinateComponent &component,
   component.vao.bind();
   component.vbo.bind();
   if (component.vertexCount < vertices.size() / 7) {
-    component.vbo.allocate(vertices.data(), vertices.size() * sizeof(float));
+    component.vbo.allocate(vertices.data(), static_cast<int>(vertices.size() * sizeof(float)));
   } else {
-    component.vbo.write(0, vertices.data(), vertices.size() * sizeof(float));
+    component.vbo.write(0, vertices.data(), static_cast<int>(vertices.size() * sizeof(float)));
   }
 
   // 位置属性
@@ -345,25 +360,25 @@ void ThreeDCoordinate::setupComponent(CoordinateComponent &component,
   m_program->setAttributeBuffer(1, GL_FLOAT, 3 * sizeof(float), 4,
                                 7 * sizeof(float));
 
-  component.vertexCount = vertices.size() / 7;
+  component.vertexCount = static_cast<int>(vertices.size() / 7);
   component.vao.release();
   component.vbo.release();
 }
 
 std::vector<float> ThreeDCoordinate::generateRandomData(int count, float minVal,
                                                         float maxVal) {
-  std::vector<float> data;
-  data.reserve(count);
+  std::vector<float> randomData;
+  randomData.reserve(count);
 
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_real_distribution<float> dis(minVal, maxVal);
 
   for (int i = 0; i < count; ++i) {
-    data.push_back(dis(gen));
+    randomData.push_back(dis(gen));
   }
 
-  return data;
+  return randomData;
 }
 
 // 创建新的线条组
@@ -377,7 +392,7 @@ void ThreeDCoordinate::createNewLineGroup() {
   const float totalWidth = 5.0f;
   const float maxHeight = 5.0f;
 
-  auto data = generateRandomData(dataCount, 0.0f, 1.0f);
+  auto randomData = generateRandomData(dataCount, 0.0f, 1.0f);
   std::vector<float> vertices;
   vertices.reserve(dataCount * 2 * 7);
 
@@ -385,26 +400,26 @@ void ThreeDCoordinate::createNewLineGroup() {
 
   for (int i = 0; i < dataCount; ++i) {
     float x = i * xStep; // 居中
-    float height = data[i] * maxHeight;
+    float height = randomData[i] * maxHeight;
     float r = static_cast<float>(rand()) / RAND_MAX;
     float g = static_cast<float>(rand()) / RAND_MAX;
     float b = static_cast<float>(rand()) / RAND_MAX;
 
     // 底部顶点
     vertices.insert(vertices.end(), {
-                                        x,            // x - 从0到5
-                                        0.0f,         // y - 底部固定为0
-                                        0.0f,         // z - 将由模型矩阵控制
-                                        r, g, b, 1.0f // rgba
-                                    });
+                      x, // x - 从0到5
+                      0.0f, // y - 底部固定为0
+                      0.0f, // z - 将由模型矩阵控制
+                      r, g, b, 1.0f // rgba
+                    });
 
     // 顶部顶点
     vertices.insert(vertices.end(), {
-                                        x,            // x - 与底部相同
-                                        height,       // y - 随机高度
-                                        0.0f,         // z - 将由模型矩阵控制
-                                        r, g, b, 1.0f // rgba
-                                    });
+                      x, // x - 与底部相同
+                      height, // y - 随机高度
+                      0.0f, // z - 将由模型矩阵控制
+                      r, g, b, 1.0f // rgba
+                    });
   }
 
   setupComponent(newGroup->lines, vertices);
@@ -417,7 +432,7 @@ void ThreeDCoordinate::createNewLineGroup() {
 void ThreeDCoordinate::updatePRPSAnimation() {
   bool hasActiveGroups = false;
 
-  for (auto &group : m_lineGroups) {
+  for (auto &group: m_lineGroups) {
     if (group->isActive) {
       group->zPosition -= m_prpsAnimationSpeed;
 
@@ -444,11 +459,11 @@ void ThreeDCoordinate::updatePRPSAnimation() {
 void ThreeDCoordinate::cleanupInactiveGroups() {
   makeCurrent();
   m_lineGroups.erase(
-      std::remove_if(m_lineGroups.begin(), m_lineGroups.end(),
-                     [](const std::unique_ptr<LineGroup> &group) {
-                       return !group->isActive;
-                     }),
-      m_lineGroups.end());
+    std::remove_if(m_lineGroups.begin(), m_lineGroups.end(),
+                   [](const std::unique_ptr<LineGroup> &group) {
+                     return !group->isActive;
+                   }),
+    m_lineGroups.end());
   doneCurrent();
 }
 
@@ -481,7 +496,7 @@ void ThreeDCoordinate::paintGLObjects() {
   glEnable(GL_LINE_SMOOTH);
   glLineWidth(2.0f);
 
-  for (const auto &group : m_lineGroups) {
+  for (const auto &group: m_lineGroups) {
     if (group->lines.isVisible()) {
       QMatrix4x4 prpsModel;
       prpsModel.translate(0, 0, group->zPosition);

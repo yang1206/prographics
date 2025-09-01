@@ -752,9 +752,9 @@ void main() {
       break;
       case DisplayMode3D::FixedDistance: {
         // 固定距离模式：保持相机到目标的距离，但调整FOV
-        QVector3D currentPos = m_camera.getPosition();
-        QVector3D target = m_camera.getTarget();
-        float currentDistance = (currentPos - target).length();
+        // QVector3D currentPos = m_camera.getPosition();
+        // QVector3D target = m_camera.getTarget();
+        // float currentDistance = (currentPos - target).length();
 
         // 保持距离不变，但根据窗口调整FOV
         float windowAspect = static_cast<float>(windowWidth) / windowHeight;
