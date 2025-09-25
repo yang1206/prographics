@@ -239,6 +239,11 @@ namespace ProGraphics {
 
         // 状态标志
         bool m_initialized = false;
+        bool m_dynamicRangeActive = false; // 动态量程是否已激活
+
+        // 保存初始范围
+        float m_initialMin = 0.0f;
+        float m_initialMax = 0.0f;
 
         // 数据平滑相关
         std::deque<std::pair<float, float> > m_recentDataRanges; // 记录最近的数据范围
@@ -262,6 +267,10 @@ namespace ProGraphics {
             float minimumThreshold; // 使用最小量程的触发阈值
             bool useFixedRange; // 是否使用固定量程
 
+            //==================== 新增配置 ====================
+            bool enableRangeRecovery; // 是否启用范围恢复功能（数据降回初始范围时固定回初始量程）
+            float sameValueRangeRatio; // 当数据值相同时，范围扩展比例（如0.1表示+10%）
+
             DynamicRangeConfig()
                 : bufferRatio(0.3f), // 添加30%的上限缓冲区，使显示更美观
                   responseSpeed(0.7f), // 较高响应速度（范围0.1-1.0，越大响应越快）
@@ -270,7 +279,9 @@ namespace ProGraphics {
                   enforceMinimumRange(false), // 默认启用最小量程
                   minimumRangeMax(5.0f), // 最小量程上限（0-5）
                   minimumThreshold(3.9f), // 数据小于2.0时使用最小量程
-                  useFixedRange(false) // 默认不使用固定量程
+                  useFixedRange(false), // 默认不使用固定量程
+                  enableRangeRecovery(true), // 默认启用范围恢复
+                  sameValueRangeRatio(0.1f) // 默认+10%
             {
             }
         };
@@ -283,6 +294,8 @@ namespace ProGraphics {
               m_currentMax(initialMax),
               m_targetMin(initialMin),
               m_targetMax(initialMax),
+              m_initialMin(initialMin),
+              m_initialMax(initialMax),
               m_config(config),
               m_initialized(false) {
         }
@@ -311,30 +324,84 @@ namespace ProGraphics {
             // 添加到历史数据
             m_recentDataRanges.push_back({dataMin, dataMax});
             if (m_recentDataRanges.size() > 10) {
-                // 固定历史长度为20
                 m_recentDataRanges.pop_front();
             }
+
+            // 首次初始化
+            if (!m_initialized) {
+                // qDebug() << "首次初始化 - 数据范围:[" << dataMin << "," << dataMax << "] 初始范围:[" << m_initialMin << "," <<
+                //         m_initialMax << "]";
+
+                // 检查数据是否在初始范围内
+                bool dataWithinInitialRange = (dataMin >= m_initialMin && dataMax <= m_initialMax);
+
+                if (dataWithinInitialRange) {
+                    // 数据在初始范围内，固定使用初始范围，不启动动态量程
+                    m_currentMin = m_initialMin;
+                    m_currentMax = m_initialMax;
+                    m_targetMin = m_initialMin;
+                    m_targetMax = m_initialMax;
+                    m_dynamicRangeActive = false; // 保持动态量程未激活
+                    m_initialized = true;
+                    return false; // 不需要重建，因为使用的是预设的初始范围
+                } else {
+                    // 数据突破了初始范围，启动动态量程
+                    m_dynamicRangeActive = true;
+                    initializeRange(dataMin, dataMax);
+                    m_initialized = true;
+                    return true; // 需要重建
+                }
+            }
+
+            // 已初始化的情况下
+
+            // 如果当前未使用动态量程，检查数据是否仍在初始范围内
+            if (!m_dynamicRangeActive) {
+                bool dataWithinInitialRange = (dataMin >= m_initialMin && dataMax <= m_initialMax);
+                if (dataWithinInitialRange) {
+                    // 数据仍在初始范围内，保持固定量程
+                    return false; // 不需要任何更新
+                } else {
+                    // 数据突破了初始范围，启动动态量程
+
+                    m_dynamicRangeActive = true;
+                    initializeRange(dataMin, dataMax);
+                    return true; // 需要重建
+                }
+            }
+
+            // 动态量程已激活的情况下
+
+            // 如果启用了范围恢复功能，检查是否应该恢复到初始范围
+            if (m_config.enableRangeRecovery) {
+                bool dataWithinInitialRange = (dataMin >= m_initialMin && dataMax <= m_initialMax);
+                if (dataWithinInitialRange) {
+                    // 数据回到初始范围内，恢复到初始范围并停用动态量程
+                    // qDebug() << "数据回到初始范围，恢复固定量程";
+                    m_currentMin = m_initialMin;
+                    m_currentMax = m_initialMax;
+                    m_targetMin = m_initialMin;
+                    m_targetMax = m_initialMax;
+                    m_dynamicRangeActive = false; // 停用动态量程
+                    return true; // 需要重建
+                }
+            }
+
+            // 执行动态量程逻辑
 
             // 检查数据是否超出当前范围
             bool dataExceedsRange = (dataMin < m_currentMin || dataMax > m_currentMax);
 
-            // 首次初始化
-            if (!m_initialized) {
-                initializeRange(dataMin, dataMax);
-                m_initialized = true;
-                return true;
-            }
-
             // 超出范围时立即响应
             if (dataExceedsRange) {
+                // qDebug() << "数据超出当前范围，扩展量程";
                 updateTargetRange(dataMin, dataMax);
-                smoothUpdateCurrentRange(calculateSmoothFactor(true, false)); // 扩展平滑因子
+                smoothUpdateCurrentRange(calculateSmoothFactor(true, false));
                 return true;
             }
 
             // 周期性检查量程是否需要收缩
             if (++m_frameCounter % 5 != 0) {
-                // 每5帧检查一次
                 return false;
             }
             m_frameCounter = 0;
@@ -346,10 +413,8 @@ namespace ProGraphics {
 
             // 数据使用率过低时收缩范围
             if (usageRatio < 0.3f) {
-                // 使用率低于30%时收缩
+                // qDebug() << "数据使用率过低，收缩量程";
                 float avgMax = calculateAverageMax();
-
-                // 使用平均最大值来更新目标范围，避免因单帧波动导致量程不稳定
                 updateTargetRange(dataMin, avgMax > dataMax ? avgMax : dataMax);
                 smoothUpdateCurrentRange(calculateSmoothFactor(false, dataMax < m_currentMax * 0.5f));
                 return isSignificantChange(oldMin, oldMax);
@@ -357,6 +422,7 @@ namespace ProGraphics {
 
             return false;
         }
+
 
         // 获取当前显示范围
         std::pair<float, float> getDisplayRange() const { return {m_currentMin, m_currentMax}; }
@@ -415,8 +481,55 @@ namespace ProGraphics {
     private:
         // 初始化范围
         void initializeRange(float dataMin, float dataMax) {
-            float range = std::max(0.001f, dataMax - dataMin);
-            float buffer = range * m_config.bufferRatio;
+            if (dataMin >= m_initialMin && dataMax <= m_initialMax) {
+                // 数据在初始范围内，保持初始范围不变
+                m_currentMin = m_initialMin;
+                m_currentMax = m_initialMax;
+                m_targetMin = m_initialMin;
+                m_targetMax = m_initialMax;
+                qDebug() << "initializeRange: 数据在初始范围内，保持初始范围["
+                        << m_initialMin << "," << m_initialMax << "]";
+                return;
+            }
+
+            float dataRange = dataMax - dataMin;
+
+            // 检查是否为相同值或极小差值的情况
+            const float MIN_MEANINGFUL_RANGE = 1.0f; // 最小有意义的范围
+
+            if (dataRange < MIN_MEANINGFUL_RANGE) {
+                // 使用 sameValueRangeRatio 逻辑
+                float centerValue = (dataMin + dataMax) / 2.0f; // 使用中心值
+                float extension;
+
+                if (std::abs(centerValue) < 1e-6f) {
+                    // 中心值接近0，使用固定扩展
+                    extension = 5.0f; // 默认扩展到±5
+                    m_currentMin = centerValue - extension;
+                    m_currentMax = centerValue + extension;
+                } else {
+                    // 中心值不为0，使用百分比扩展
+                    extension = std::abs(centerValue) * m_config.sameValueRangeRatio;
+                    // 确保最小扩展量
+                    extension = std::max(extension, 2.0f);
+
+                    m_currentMin = centerValue - extension;
+                    m_currentMax = centerValue + extension;
+                }
+
+                // 计算美观范围
+                auto [niceMin, niceMax] = calculateNiceRange(
+                    m_currentMin, m_currentMax, m_config.targetTickCount);
+
+                m_targetMin = niceMin;
+                m_targetMax = niceMax;
+                m_currentMin = niceMin;
+                m_currentMax = niceMax;
+                return;
+            }
+
+            // 正常的动态范围处理
+            float buffer = dataRange * m_config.bufferRatio;
 
             // 最小值不添加缓冲区
             float min = dataMin;
@@ -433,35 +546,57 @@ namespace ProGraphics {
             m_currentMin = niceMin;
             m_currentMax = niceMax;
 
-            // 记录调试信息
-            // qDebug() << "初始化范围: 数据[" << dataMin << "," << dataMax
-            //         << "] -> 显示[" << m_currentMin << "," << m_currentMax
-            //         << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
+            qDebug() << "正常初始化范围: 数据[" << dataMin << "," << dataMax
+                    << "] -> 显示[" << m_currentMin << "," << m_currentMax
+                    << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
         }
 
         // 更新目标范围
         void updateTargetRange(float dataMin, float dataMax) {
-            float range = std::max(0.001f, dataMax - dataMin);
-            float buffer = range * m_config.bufferRatio;
+            float dataRange = dataMax - dataMin;
 
-            // 最小值不添加缓冲区
+            // 检查是否为相同值或极小差值的情况
+            const float MIN_MEANINGFUL_RANGE = 1.0f;
+
+            if (dataRange < MIN_MEANINGFUL_RANGE) {
+                float centerValue = (dataMin + dataMax) / 2.0f;
+                float extension;
+
+                if (std::abs(centerValue) < 1e-6f) {
+                    extension = 5.0f;
+                    m_targetMin = centerValue - extension;
+                    m_targetMax = centerValue + extension;
+                } else {
+                    extension = std::abs(centerValue) * m_config.sameValueRangeRatio;
+                    extension = std::max(extension, 2.0f);
+                    m_targetMin = centerValue - extension;
+                    m_targetMax = centerValue + extension;
+                }
+                // 计算美观范围
+                auto [niceMin, niceMax] = calculateNiceRange(
+                    m_targetMin, m_targetMax, m_config.targetTickCount);
+
+                m_targetMin = niceMin;
+                m_targetMax = niceMax;
+
+                return;
+            }
+
+            // 正常处理逻辑
+            float buffer = dataRange * m_config.bufferRatio;
             float rawMin = dataMin;
-            // 最大值添加缓冲区
             float rawMax = dataMax + buffer;
 
-            // 计算美观范围，移除enforcePositiveRange参数
             auto [niceMin, niceMax] = calculateNiceRange(
                 rawMin, rawMax, m_config.targetTickCount,
                 true, dataMax, m_config.bufferRatio);
 
             // 避免抽搐：如果目标范围与当前目标范围非常接近，保持不变
             if (m_initialized) {
-                // 计算相对变化
                 float currentRange = m_targetMax - m_targetMin;
                 float minChange = std::abs(niceMin - m_targetMin) / currentRange;
                 float maxChange = std::abs(niceMax - m_targetMax) / currentRange;
 
-                // 如果变化非常小（小于5%），保持当前目标
                 if (minChange < 0.05f && maxChange < 0.05f) {
                     return;
                 }
@@ -470,10 +605,8 @@ namespace ProGraphics {
             m_targetMin = niceMin;
             m_targetMax = niceMax;
 
-            // 输出调试信息
-            // qDebug() << "更新目标范围: 数据[" << dataMin << "," << dataMax
-            //         << "] -> 目标[" << m_targetMin << "," << m_targetMax
-            //         << "] (缓冲区:" << (m_targetMax - dataMax) << ")";
+            qDebug() << "正常更新目标范围: 数据[" << dataMin << "," << dataMax
+                    << "] -> 目标[" << m_targetMin << "," << m_targetMax << "]";
         }
 
         // 平滑更新当前范围，接受平滑因子参数

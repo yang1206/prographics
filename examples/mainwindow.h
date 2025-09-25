@@ -75,7 +75,7 @@ private:
     QTimer m_dataTimer;
     DataGenerationMode m_dataGenerationMode = DataGenerationMode::MANUAL_RANGE;
     float m_currentMinRange = 0.0f;
-    float m_currentMaxRange = 5.0f;
+    float m_currentMaxRange = 2.0f;
     bool m_isAutoChanging = false;
 
     // 最小量程控制

@@ -121,7 +121,7 @@ namespace ProGraphics {
         float m_prpsAnimationSpeed = 0.1f;
 
         // 动态量程管理
-        DynamicRange m_dynamicRange;
+        DynamicRange m_dynamicRange{0.0f, 50.0f, DynamicRange::DynamicRangeConfig()};
         bool m_dynamicRangeEnabled = true;
 
         // 坐标范围

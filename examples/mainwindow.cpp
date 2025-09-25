@@ -148,12 +148,12 @@ void MainWindow::setupDataRangeControls() {
 
     m_maxRangeSlider = new QSlider(Qt::Horizontal, m_dataRangeGroup);
     m_maxRangeSlider->setRange(-100, 1000);
-    m_maxRangeSlider->setValue(5);
+    m_maxRangeSlider->setValue(2);
     m_maxRangeSlider->setTickPosition(QSlider::TicksBelow);
 
     m_maxRangeInput = new QDoubleSpinBox(m_dataRangeGroup);
     m_maxRangeInput->setRange(-100.0, 1000.0);
-    m_maxRangeInput->setValue(5.0);
+    m_maxRangeInput->setValue(2.0);
     m_maxRangeInput->setDecimals(1);
     m_maxRangeInput->setSingleStep(1.0);
 
@@ -176,7 +176,7 @@ void MainWindow::setupDataRangeControls() {
         m_minRangeInput->setValue(value);
         // 确保最小值不超过最大值
         if (m_minRangeInput->value() >= m_maxRangeInput->value()) {
-            m_maxRangeInput->setValue(m_minRangeInput->value() + 1.0);
+            m_maxRangeInput->setValue(m_minRangeInput->value());
             m_maxRangeSlider->setValue(static_cast<int>(m_maxRangeInput->value()));
         }
         // 直接应用范围变化
@@ -188,7 +188,7 @@ void MainWindow::setupDataRangeControls() {
         m_maxRangeInput->setValue(value);
         // 确保最大值不小于最小值
         if (m_maxRangeInput->value() <= m_minRangeInput->value()) {
-            m_minRangeInput->setValue(m_maxRangeInput->value() - 1.0);
+            m_minRangeInput->setValue(m_maxRangeInput->value());
             m_minRangeSlider->setValue(static_cast<int>(m_minRangeInput->value()));
         }
         // 直接应用范围变化

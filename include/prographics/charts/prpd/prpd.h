@@ -97,7 +97,7 @@ namespace ProGraphics {
         int m_phasePoints = PRPDConstants::PHASE_POINTS;
 
         // 动态量程管理器
-        DynamicRange m_dynamicRange;
+        DynamicRange m_dynamicRange{0.0f, 50.0f, DynamicRange::DynamicRangeConfig()};
         bool m_dynamicRangeEnabled = true;
 
         // ===== 私有方法 =====

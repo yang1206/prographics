@@ -62,14 +62,11 @@ namespace ProGraphics {
     setAxisName('y', "幅值", "dBm");
     setAxisEnabled(false);
 
-    // 初始化动态量程
-    DynamicRange::DynamicRangeConfig config;
-
-    m_dynamicRange = DynamicRange(0.0f, 5.0f, config);
-
+    auto [initialMin, initialMax] = m_dynamicRange.getDisplayRange();
+    float step = calculateNiceTickStep(initialMax - initialMin);
     // 设置各轴的刻度范围
     setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
-    setTicksRange('y', 0.0f, 5.0f, 0.2f);
+    setTicksRange('y', initialMin, initialMax, step);
     setAxisVisible('z', false);
 
     // 连接更新线程的信号到动画更新槽
@@ -257,12 +254,7 @@ namespace ProGraphics {
   }
 
   void PRPSChart::setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config) {
-    // 保存当前显示范围
-    auto [oldMin, oldMax] = m_dynamicRange.getDisplayRange();
-
-    // 更新配置
-    m_dynamicRange = DynamicRange(oldMin, oldMax, config);
-
+    m_dynamicRange.setConfig(config);
     // 更新坐标轴刻度
     auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
     setTicksRange('y', newMin, newMax, calculateNiceTickStep(newMax - newMin, config.targetTickCount));

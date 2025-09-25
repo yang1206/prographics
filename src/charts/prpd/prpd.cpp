@@ -10,12 +10,12 @@ namespace ProGraphics {
         setAxisName('y', "", "dBm");
 
         // 初始化动态量程
-        DynamicRange::DynamicRangeConfig config;
-        m_dynamicRange = DynamicRange(0.0f, 5.0f, config);
-
+        auto [initialMin, initialMax] = m_dynamicRange.getDisplayRange();
+        float step = calculateNiceTickStep(initialMax - initialMin);
         // 设置初始坐标轴范围
         setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
-        setTicksRange('y', 0.0f, 5.0f, 0.2f);
+        setTicksRange('y', initialMin, initialMax, step);
+
         setAxisVisible('z', false);
 
         // 设置网格和坐标轴可见性
@@ -93,7 +93,6 @@ namespace ProGraphics {
         // 如果范围改变，更新坐标轴并重建频次表
         if (rangeChanged) {
             auto [newDisplayMin, newDisplayMax] = m_dynamicRange.getDisplayRange();
-
             // 更新坐标轴刻度
             float step = calculateNiceTickStep(newDisplayMax - newDisplayMin);
             setTicksRange('y', newDisplayMin, newDisplayMax, step);
@@ -249,12 +248,7 @@ namespace ProGraphics {
     bool PRPDChart::isDynamicRangeEnabled() const { return m_dynamicRangeEnabled; }
 
     void PRPDChart::setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config) {
-        // 保存当前显示范围
-        auto [oldMin, oldMax] = m_dynamicRange.getDisplayRange();
-
-        // 更新配置
-        m_dynamicRange = DynamicRange(oldMin, oldMax, config);
-
+        m_dynamicRange.setConfig(config);
         // 更新坐标轴刻度
         auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
         setTicksRange('y', newMin, newMax, calculateNiceTickStep(newMax - newMin, config.targetTickCount));
