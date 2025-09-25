@@ -36,6 +36,57 @@ namespace ProGraphics {
         void setDynamicRangeEnabled(bool enabled); ///< 设置是否启用动态量程
         bool isDynamicRangeEnabled() const; ///< 获取动态量程是否启用
         void setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config); ///< 设置动态量程配置
+        /**
+     * @brief 设置初始显示范围（基准范围）
+     * @param min 初始最小值
+     * @param max 初始最大值
+     */
+        void setInitialRange(float min, float max) {
+            m_dynamicRange.setInitialRange(min, max);
+            update();
+        }
+
+        /**
+         * @brief 获取初始显示范围
+         */
+        std::pair<float, float> getInitialRange() const {
+            return m_dynamicRange.getInitialRange();
+        }
+
+        /**
+         * @brief 设置硬限制范围（防止异常数据影响显示）
+         * @param min 硬限制最小值
+         * @param max 硬限制最大值
+         * @param enabled 是否启用硬限制
+         */
+        void setHardLimits(float min, float max, bool enabled = true) {
+            m_dynamicRange.setHardLimits(min, max, enabled);
+            update();
+        }
+
+        /**
+            * @brief 获取硬限制范围
+            */
+        std::pair<float, float> getHardLimits() const {
+            return m_dynamicRange.getHardLimits();
+        }
+
+        /**
+         * @brief 启用或禁用硬限制
+         * @param enabled 是否启用
+         */
+        void enableHardLimits(bool enabled) {
+            m_dynamicRange.enableHardLimits(enabled);
+            update();
+        }
+
+        /**
+         * @brief 检查硬限制是否启用
+         */
+        bool isHardLimitsEnabled() const {
+            return m_dynamicRange.isHardLimitsEnabled();
+        }
+
         void resetData() {
             m_cycleBuffer.data.clear();
             m_cycleBuffer.binIndices.clear();
@@ -47,7 +98,6 @@ namespace ProGraphics {
             update();
         };
 
-        void setFixedRange(float min, float max, bool isFixed = true);
 
         void setPhasePoint(int phasePoint);
 

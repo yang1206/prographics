@@ -351,19 +351,6 @@ namespace ProGraphics {
         return displayMin + normalizedPos * (displayMax - displayMin);
     }
 
-    void PRPDChart::setFixedRange(float min, float max, bool isFixed) {
-        m_dynamicRangeEnabled = !isFixed;
-        m_dynamicRange.setDisplayRange(min, max, isFixed);
-
-        // 更新坐标轴
-        float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
-        setTicksRange('y', min, max, step);
-
-        // 重建频次表
-        rebuildFrequencyTable();
-        update();
-    }
-
     void PRPDChart::setPhasePoint(int phasePoint) {
         m_phasePoints = phasePoint;
     }

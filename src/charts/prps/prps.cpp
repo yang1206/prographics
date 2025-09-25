@@ -284,6 +284,7 @@ namespace ProGraphics {
     update();
   }
 
+
   void PRPSChart::setDynamicRangeEnabled(bool enabled) {
     m_dynamicRangeEnabled = enabled;
   }
@@ -295,6 +296,7 @@ namespace ProGraphics {
   bool PRPSChart::isDynamicRangeEnabled() const {
     return m_dynamicRangeEnabled;
   }
+
 
   float PRPSChart::mapPhaseToGL(float phase) const {
     return (phase - m_phaseMin) / (m_phaseMax - m_phaseMin) *
@@ -358,19 +360,6 @@ namespace ProGraphics {
       }
     }
     doneCurrent();
-    update();
-  }
-
-  void PRPSChart::setFixedRange(float min, float max, bool isFixed) {
-    m_dynamicRangeEnabled = !isFixed;
-    m_dynamicRange.setDisplayRange(min, max, isFixed);
-
-    // 更新坐标轴
-    float step = calculateNiceTickStep(max - min, m_dynamicRange.getConfig().targetTickCount);
-    setTicksRange('y', min, max, step);
-
-    // 重新计算所有线组
-    recalculateLineGroups();
     update();
   }
 } // namespace ProGraphics

@@ -65,11 +65,17 @@ void MainWindow::setupCombinedTab() {
 
     // 添加动态量程配置控制
     setupConfigControls();
+    setupInitialRangeControls();
+    setupHardLimitsControls();
 
+    setupTestControls();
     // 将控制组添加到控制面板
     controlLayout->addWidget(modeGroup);
     controlLayout->addWidget(m_dataRangeGroup);
     controlLayout->addWidget(m_configGroup);
+    controlLayout->addWidget(m_initialRangeGroup);
+    controlLayout->addWidget(m_hardLimitsGroup);
+    controlLayout->addWidget(m_testGroup);
     controlLayout->addStretch();
 
     // 创建图表
@@ -244,43 +250,6 @@ void MainWindow::setupConfigControls() {
     m_targetTickCountInput->setValue(6);
     configLayout->addWidget(m_targetTickCountInput, 3, 1);
 
-    // 添加最小量程控制组
-    QGroupBox *minRangeGroup = new QGroupBox("最小量程控制", m_configGroup);
-    QGridLayout *minRangeLayout = new QGridLayout(minRangeGroup);
-
-    // 启用最小量程
-    m_enableMinRangeCheckbox = new QCheckBox("启用最小量程", minRangeGroup);
-    m_enableMinRangeCheckbox->setChecked(false);
-    minRangeLayout->addWidget(m_enableMinRangeCheckbox, 0, 0, 1, 2);
-
-    // 最小量程上限
-    minRangeLayout->addWidget(new QLabel("最小量程上限:"), 1, 0);
-    m_minRangeMaxInput = new QDoubleSpinBox(minRangeGroup);
-    m_minRangeMaxInput->setRange(0.1, 100.0);
-    m_minRangeMaxInput->setValue(5.0);
-    m_minRangeMaxInput->setSingleStep(0.5);
-    minRangeLayout->addWidget(m_minRangeMaxInput, 1, 1);
-
-    // 启用阈值
-    minRangeLayout->addWidget(new QLabel("启用阈值:"), 2, 0);
-    m_activationThresholdInput = new QDoubleSpinBox(minRangeGroup);
-    m_activationThresholdInput->setRange(0.1, 50.0);
-    m_activationThresholdInput->setValue(2.0);
-    m_activationThresholdInput->setSingleStep(0.1);
-    minRangeLayout->addWidget(m_activationThresholdInput, 2, 1);
-
-    // 使用固定量程
-    m_useFixedRangeCheckbox = new QCheckBox("使用固定量程", minRangeGroup);
-    m_useFixedRangeCheckbox->setChecked(false);
-    minRangeLayout->addWidget(m_useFixedRangeCheckbox, 3, 0, 1, 2);
-
-    configLayout->addWidget(minRangeGroup, 4, 0, 1, 2);
-
-    // 连接信号
-    connect(m_enableMinRangeCheckbox, &QCheckBox::toggled, this, [=](bool checked) {
-        m_minRangeMaxInput->setEnabled(checked);
-        m_activationThresholdInput->setEnabled(checked);
-    });
 
     // 应用按钮
     m_applyConfigButton = new QPushButton("应用配置", m_configGroup);
@@ -289,6 +258,114 @@ void MainWindow::setupConfigControls() {
     // 连接信号
     connect(m_applyConfigButton, &QPushButton::clicked, this, &MainWindow::updateDynamicRangeConfig);
 }
+
+void MainWindow::setupInitialRangeControls() {
+    m_initialRangeGroup = new QGroupBox("初始范围设置", m_combinedTab);
+    QGridLayout *layout = new QGridLayout(m_initialRangeGroup);
+
+    // 初始最小值
+    layout->addWidget(new QLabel("初始最小值:"), 0, 0);
+    m_initialMinInput = new QDoubleSpinBox(m_initialRangeGroup);
+    m_initialMinInput->setRange(-1000.0, 1000.0);
+    m_initialMinInput->setValue(-75.0);
+    m_initialMinInput->setDecimals(1);
+    layout->addWidget(m_initialMinInput, 0, 1);
+
+    // 初始最大值
+    layout->addWidget(new QLabel("初始最大值:"), 1, 0);
+    m_initialMaxInput = new QDoubleSpinBox(m_initialRangeGroup);
+    m_initialMaxInput->setRange(-1000.0, 1000.0);
+    m_initialMaxInput->setValue(-30.0);
+    m_initialMaxInput->setDecimals(1);
+    layout->addWidget(m_initialMaxInput, 1, 1);
+
+    // 应用按钮
+    m_applyInitialRangeButton = new QPushButton("应用初始范围", m_initialRangeGroup);
+    layout->addWidget(m_applyInitialRangeButton, 2, 0, 1, 2);
+
+    // 当前初始范围显示
+    m_currentInitialRangeLabel = new QLabel("当前: [-75.0, -30.0]", m_initialRangeGroup);
+    m_currentInitialRangeLabel->setStyleSheet("QLabel { color: #666; font-size: 11px; }");
+    layout->addWidget(m_currentInitialRangeLabel, 3, 0, 1, 2);
+
+    // 连接信号
+    connect(m_applyInitialRangeButton, &QPushButton::clicked, this, &MainWindow::updateInitialRange);
+}
+
+void MainWindow::setupHardLimitsControls() {
+    m_hardLimitsGroup = new QGroupBox("硬限制设置", m_combinedTab);
+    QGridLayout *layout = new QGridLayout(m_hardLimitsGroup);
+
+    // 启用硬限制复选框
+    m_enableHardLimitsCheckbox = new QCheckBox("启用硬限制", m_hardLimitsGroup);
+    m_enableHardLimitsCheckbox->setChecked(true);
+    layout->addWidget(m_enableHardLimitsCheckbox, 0, 0, 1, 2);
+
+    // 硬限制最小值
+    layout->addWidget(new QLabel("硬限制最小值:"), 1, 0);
+    m_hardLimitMinInput = new QDoubleSpinBox(m_hardLimitsGroup);
+    m_hardLimitMinInput->setRange(-10000.0, 10000.0);
+    m_hardLimitMinInput->setValue(-200.0);
+    m_hardLimitMinInput->setDecimals(1);
+    layout->addWidget(m_hardLimitMinInput, 1, 1);
+
+    // 硬限制最大值
+    layout->addWidget(new QLabel("硬限制最大值:"), 2, 0);
+    m_hardLimitMaxInput = new QDoubleSpinBox(m_hardLimitsGroup);
+    m_hardLimitMaxInput->setRange(-10000.0, 10000.0);
+    m_hardLimitMaxInput->setValue(100.0);
+    m_hardLimitMaxInput->setDecimals(1);
+    layout->addWidget(m_hardLimitMaxInput, 2, 1);
+
+    // 应用按钮
+    m_applyHardLimitsButton = new QPushButton("应用硬限制", m_hardLimitsGroup);
+    layout->addWidget(m_applyHardLimitsButton, 3, 0, 1, 2);
+
+    // 硬限制状态显示
+    m_hardLimitsStatusLabel = new QLabel("状态: 已启用 [-200.0, 100.0]", m_hardLimitsGroup);
+    m_hardLimitsStatusLabel->setStyleSheet("QLabel { color: #666; font-size: 11px; }");
+    layout->addWidget(m_hardLimitsStatusLabel, 4, 0, 1, 2);
+
+    // 连接信号
+    connect(m_enableHardLimitsCheckbox, &QCheckBox::toggled, this, &MainWindow::onHardLimitsToggled);
+    connect(m_applyHardLimitsButton, &QPushButton::clicked, this, &MainWindow::updateHardLimits);
+}
+
+void MainWindow::setupTestControls() {
+    m_testGroup = new QGroupBox("测试功能", m_combinedTab);
+    QVBoxLayout *layout = new QVBoxLayout(m_testGroup);
+
+    // 重置默认值按钮
+    m_resetDefaultsButton = new QPushButton("重置为默认配置", m_testGroup);
+    layout->addWidget(m_resetDefaultsButton);
+
+    // 测试异常数据按钮
+    m_testOutlierDataButton = new QPushButton("测试异常数据处理", m_testGroup);
+    layout->addWidget(m_testOutlierDataButton);
+
+    // 测试范围恢复按钮
+    m_testRangeRecoveryButton = new QPushButton("测试范围恢复功能", m_testGroup);
+    layout->addWidget(m_testRangeRecoveryButton);
+
+    // 测试状态显示
+    m_testStatusLabel = new QLabel("状态: 就绪", m_testGroup);
+    m_testStatusLabel->setStyleSheet("QLabel { color: #666; font-size: 11px; }");
+    layout->addWidget(m_testStatusLabel);
+
+    // 连接信号
+    connect(m_resetDefaultsButton, &QPushButton::clicked, this, &MainWindow::resetToDefaults);
+    connect(m_testOutlierDataButton, &QPushButton::clicked, this, [this]() {
+        m_isTestingOutliers = !m_isTestingOutliers;
+        m_testOutlierDataButton->setText(m_isTestingOutliers ? "停止异常数据测试" : "测试异常数据处理");
+        updateStatusLabels();
+    });
+    connect(m_testRangeRecoveryButton, &QPushButton::clicked, this, [this]() {
+        m_isTestingRecovery = !m_isTestingRecovery;
+        m_testRangeRecoveryButton->setText(m_isTestingRecovery ? "停止恢复测试" : "测试范围恢复功能");
+        updateStatusLabels();
+    });
+}
+
 
 void MainWindow::onResetRangeButtonClicked() {
     // 重置为默认范围 0-5
@@ -341,11 +418,6 @@ void MainWindow::updateDynamicRangeConfig() {
     prpsConfig.smartAdjustment = m_smartAdjustmentCheckbox->isChecked();
     prpsConfig.targetTickCount = m_targetTickCountInput->value();
 
-    // 更新最小量程配置
-    prpsConfig.enforceMinimumRange = m_enableMinRangeCheckbox->isChecked();
-    prpsConfig.minimumRangeMax = static_cast<float>(m_minRangeMaxInput->value());
-    prpsConfig.minimumThreshold = static_cast<float>(m_activationThresholdInput->value());
-    prpsConfig.useFixedRange = m_useFixedRangeCheckbox->isChecked();
 
     // 同样设置PRPD的配置
     prpdConfig = prpsConfig;
@@ -356,9 +428,116 @@ void MainWindow::updateDynamicRangeConfig() {
     m_prpdChart->setDynamicRangeConfig(prpdConfig);
 
     qDebug() << "更新动态量程配置: bufferRatio=" << prpsConfig.bufferRatio
-            << ", responseSpeed=" << prpsConfig.responseSpeed
-            << ", minimumRangeMax=" << prpsConfig.minimumRangeMax;
+            << ", responseSpeed=" << prpsConfig.responseSpeed;
 }
+
+
+void MainWindow::updateInitialRange() {
+    float minVal = static_cast<float>(m_initialMinInput->value());
+    float maxVal = static_cast<float>(m_initialMaxInput->value());
+
+    if (minVal >= maxVal) {
+        qWarning() << "初始最小值必须小于最大值";
+        return;
+    }
+
+    // 应用到两个图表
+    m_prpdChart->setInitialRange(minVal, maxVal);
+    m_prpsChart->setInitialRange(minVal, maxVal);
+
+    updateStatusLabels();
+
+    qDebug() << "更新初始范围:" << minVal << "到" << maxVal;
+}
+
+void MainWindow::updateHardLimits() {
+    float minVal = static_cast<float>(m_hardLimitMinInput->value());
+    float maxVal = static_cast<float>(m_hardLimitMaxInput->value());
+    bool enabled = m_enableHardLimitsCheckbox->isChecked();
+
+    if (minVal >= maxVal) {
+        qWarning() << "硬限制最小值必须小于最大值";
+        return;
+    }
+
+    // 应用到两个图表
+    m_prpdChart->setHardLimits(minVal, maxVal, enabled);
+    m_prpsChart->setHardLimits(minVal, maxVal, enabled);
+
+    updateStatusLabels();
+
+    qDebug() << "更新硬限制:" << (enabled ? "启用" : "禁用") << "[" << minVal << "," << maxVal << "]";
+}
+
+void MainWindow::onHardLimitsToggled(bool enabled) {
+    // 启用/禁用硬限制输入控件
+    m_hardLimitMinInput->setEnabled(enabled);
+    m_hardLimitMaxInput->setEnabled(enabled);
+    m_applyHardLimitsButton->setEnabled(enabled);
+
+    // 立即应用状态变化
+    m_prpdChart->enableHardLimits(enabled);
+    m_prpsChart->enableHardLimits(enabled);
+
+    updateStatusLabels();
+
+    qDebug() << "硬限制" << (enabled ? "启用" : "禁用");
+}
+
+void MainWindow::resetToDefaults() {
+    // 重置初始范围
+    m_initialMinInput->setValue(-75.0);
+    m_initialMaxInput->setValue(-30.0);
+    updateInitialRange();
+
+    // 重置硬限制
+    m_enableHardLimitsCheckbox->setChecked(true);
+    m_hardLimitMinInput->setValue(-200.0);
+    m_hardLimitMaxInput->setValue(100.0);
+    updateHardLimits();
+
+    // 重置动态量程配置
+    m_bufferRatioInput->setValue(0.2);
+    m_responseSpeedInput->setValue(0.8);
+    m_smartAdjustmentCheckbox->setChecked(true);
+    m_targetTickCountInput->setValue(6);
+    updateDynamicRangeConfig();
+
+    // 停止测试
+    m_isTestingOutliers = false;
+    m_isTestingRecovery = false;
+    m_testOutlierDataButton->setText("测试异常数据处理");
+    m_testRangeRecoveryButton->setText("测试范围恢复功能");
+
+    updateStatusLabels();
+    qDebug() << "重置为默认配置";
+}
+
+void MainWindow::updateStatusLabels() {
+    // 更新初始范围标签
+    auto [prpdInitialMin, prpdInitialMax] = m_prpdChart->getInitialRange();
+    m_currentInitialRangeLabel->setText(
+        QString("当前: [%1, %2]").arg(prpdInitialMin, 0, 'f', 1).arg(prpdInitialMax, 0, 'f', 1));
+
+    // 更新硬限制状态标签
+    if (m_prpdChart->isHardLimitsEnabled()) {
+        auto [hardMin, hardMax] = m_prpdChart->getHardLimits();
+        m_hardLimitsStatusLabel->setText(
+            QString("状态: 已启用 [%1, %2]").arg(hardMin, 0, 'f', 1).arg(hardMax, 0, 'f', 1));
+    } else {
+        m_hardLimitsStatusLabel->setText("状态: 已禁用");
+    }
+
+    // 更新测试状态标签
+    QString testStatus = "状态: 就绪";
+    if (m_isTestingOutliers) {
+        testStatus = "状态: 正在测试异常数据处理";
+    } else if (m_isTestingRecovery) {
+        testStatus = "状态: 正在测试范围恢复";
+    }
+    m_testStatusLabel->setText(testStatus);
+}
+
 
 void MainWindow::updateSliderLimits(float newMin, float newMax) {
     // 当范围变化很大时，自动调整滑块的范围
@@ -378,19 +557,26 @@ void MainWindow::generateTestData() {
     std::vector<float> cycleData;
 
     // 使用选定的数据生成方法
-    switch (m_dataGenerationMode) {
-        case DataGenerationMode::MANUAL_RANGE:
-            cycleData = generateManualRangePattern();
-            break;
-        case DataGenerationMode::RANDOM_AMPLITUDE:
-            cycleData = generateRandomAmplitudePattern();
-            break;
-        case DataGenerationMode::SMOOTH_CHANGING:
-            cycleData = generateSmoothlyChangingPattern();
-            break;
-        case DataGenerationMode::STANDARD_PD:
-            cycleData = generateStandardPDPattern();
-            break;
+    if (m_isTestingOutliers) {
+        cycleData = generateOutlierTestData();
+    } else if (m_isTestingRecovery) {
+        cycleData = generateRecoveryTestData();
+    } else {
+        // 使用选定的数据生成方法
+        switch (m_dataGenerationMode) {
+            case DataGenerationMode::MANUAL_RANGE:
+                cycleData = generateManualRangePattern();
+                break;
+            case DataGenerationMode::RANDOM_AMPLITUDE:
+                cycleData = generateRandomAmplitudePattern();
+                break;
+            case DataGenerationMode::SMOOTH_CHANGING:
+                cycleData = generateSmoothlyChangingPattern();
+                break;
+            case DataGenerationMode::STANDARD_PD:
+                cycleData = generateStandardPDPattern();
+                break;
+        }
     }
 
     // 添加到图表
@@ -669,3 +855,82 @@ std::vector<float> MainWindow::generateSmoothlyChangingPattern() const {
 
     return cycleData;
 }
+
+
+std::vector<float> MainWindow::generateOutlierTestData() const {
+    std::vector<float> cycleData(ProGraphics::PRPSConstants::PHASE_POINTS);
+
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    static int counter = 0;
+    counter++;
+
+    // 大部分时间生成正常数据
+    std::uniform_real_distribution<float> normalDist(-60.0f, -40.0f);
+
+    for (int i = 0; i < ProGraphics::PRPSConstants::PHASE_POINTS; ++i) {
+        cycleData[i] = normalDist(gen);
+    }
+
+    // 每50帧插入一些异常数据
+    if (counter % 50 == 0) {
+        std::uniform_real_distribution<float> outlierDist(-5000.0f, 5000.0f);
+        int outlierCount = 5 + gen() % 10; // 5-15个异常点
+
+        for (int i = 0; i < outlierCount; ++i) {
+            int idx = gen() % ProGraphics::PRPSConstants::PHASE_POINTS;
+            cycleData[idx] = outlierDist(gen);
+        }
+
+        qDebug() << "插入" << outlierCount << "个异常数据点";
+    }
+
+    return cycleData;
+}
+
+std::vector<float> MainWindow::generateRecoveryTestData() const {
+    std::vector<float> cycleData(ProGraphics::PRPSConstants::PHASE_POINTS);
+
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    static int phase = 0; // 0: 正常, 1: 超出, 2: 恢复
+    static int phaseCounter = 0;
+
+    phaseCounter++;
+
+    // 每200帧切换一个阶段
+    if (phaseCounter % 200 == 0) {
+        phase = (phase + 1) % 3;
+        switch (phase) {
+            case 0:
+                qDebug() << "范围恢复测试: 正常数据阶段";
+                break;
+            case 1:
+                qDebug() << "范围恢复测试: 超出范围阶段";
+                break;
+            case 2:
+                qDebug() << "范围恢复测试: 恢复到初始范围阶段";
+                break;
+        }
+    }
+    std::uniform_real_distribution<float> dist;
+
+    switch (phase) {
+        case 0: // 正常数据（在初始范围内）
+            dist = std::uniform_real_distribution<float>(-70.0f, -35.0f);
+            break;
+        case 1: // 超出范围数据
+            dist = std::uniform_real_distribution<float>(-150.0f, 50.0f);
+            break;
+        case 2: // 恢复到初始范围
+            dist = std::uniform_real_distribution<float>(-65.0f, -40.0f);
+            break;
+    }
+
+    for (int i = 0; i < ProGraphics::PRPSConstants::PHASE_POINTS; ++i) {
+        cycleData[i] = dist(gen);
+    }
+
+    return cycleData;
+}
+

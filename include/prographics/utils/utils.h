@@ -253,34 +253,25 @@ namespace ProGraphics {
 
     public:
         struct DynamicRangeConfig {
-            //==================== 核心参数 ====================
-            float bufferRatio; // 缓冲区比例，仅应用于上限，控制数据最大值之上的额外空间
-            float responseSpeed; // 总体响应速度，控制量程变化的灵敏度
-            bool smartAdjustment; // 智能调整模式（自动处理扩展和收缩的差异）
+            // ========== 核心参数 ==========
+            float bufferRatio = 0.2f; // 上限缓冲区比例（20%）
+            float responseSpeed = 0.8f; // 响应速度（0.1-1.0）
+            bool smartAdjustment = true; // 智能调整（扩展快，收缩慢）
 
-            //==================== 美观控制 ====================
-            int targetTickCount; // 刻度数量
+            // ========== 美观控制 ==========
+            int targetTickCount = 6; // 目标刻度数量
+            // ========== 范围控制 ==========
+            bool enableRangeRecovery = true; // 启用范围恢复功能
+            float sameValueRangeRatio = 0.15f; // 相同值扩展比例（15%）
 
-            //==================== 特殊功能 ====================
-            bool enforceMinimumRange; // 是否使用最小量程
-            float minimumRangeMax; // 最小量程上限值
-            float minimumThreshold; // 使用最小量程的触发阈值
-            bool useFixedRange; // 是否使用固定量程
-
-            //==================== 新增配置 ====================
-            bool enableRangeRecovery; // 是否启用范围恢复功能（数据降回初始范围时固定回初始量程）
-            float sameValueRangeRatio; // 当数据值相同时，范围扩展比例（如0.1表示+10%）
+            // ========== 硬限制 ==========
+            bool enableHardLimits = false; // 显式控制是否启用
+            float hardLimitMin = -1000.0f; // 硬限制最小值
+            float hardLimitMax = 1000.0f; // 硬限制最大值
 
             DynamicRangeConfig()
                 : bufferRatio(0.3f), // 添加30%的上限缓冲区，使显示更美观
-                  responseSpeed(0.7f), // 较高响应速度（范围0.1-1.0，越大响应越快）
-                  smartAdjustment(true), // 启用智能调整
-                  targetTickCount(6), // 6个刻度通常比较美观
-                  enforceMinimumRange(false), // 默认启用最小量程
-                  minimumRangeMax(5.0f), // 最小量程上限（0-5）
-                  minimumThreshold(3.9f), // 数据小于2.0时使用最小量程
-                  useFixedRange(false), // 默认不使用固定量程
-                  enableRangeRecovery(true), // 默认启用范围恢复
+                  responseSpeed(0.7f), // 启用智能调整
                   sameValueRangeRatio(0.1f) // 默认+10%
             {
             }
@@ -309,13 +300,16 @@ namespace ProGraphics {
 
         // 更新范围，返回是否需要重建绘图数据
         bool updateRange(const std::vector<float> &newData) {
-            if (newData.empty() || m_config.useFixedRange)
+            if (newData.empty())
                 return false;
 
             // 计算当前数据范围
             auto [minIt, maxIt] = std::minmax_element(newData.begin(), newData.end());
-            float dataMin = *minIt;
-            float dataMax = *maxIt;
+            float rawDataMin = *minIt;
+            float rawDataMax = *maxIt;
+
+            // 预处理输入数据（应用硬限制）
+            auto [dataMin, dataMax] = preprocessInputData(rawDataMin, rawDataMax);
 
             // 记录初始显示范围用于判断变化
             float oldMin = m_currentMin;
@@ -343,12 +337,14 @@ namespace ProGraphics {
                     m_targetMax = m_initialMax;
                     m_dynamicRangeActive = false; // 保持动态量程未激活
                     m_initialized = true;
+                    applyHardLimitsToCurrentRange();
                     return false; // 不需要重建，因为使用的是预设的初始范围
                 } else {
                     // 数据突破了初始范围，启动动态量程
                     m_dynamicRangeActive = true;
                     initializeRange(dataMin, dataMax);
                     m_initialized = true;
+                    applyHardLimitsToCurrentRange();
                     return true; // 需要重建
                 }
             }
@@ -366,6 +362,7 @@ namespace ProGraphics {
 
                     m_dynamicRangeActive = true;
                     initializeRange(dataMin, dataMax);
+                    applyHardLimitsToCurrentRange();
                     return true; // 需要重建
                 }
             }
@@ -383,6 +380,8 @@ namespace ProGraphics {
                     m_targetMin = m_initialMin;
                     m_targetMax = m_initialMax;
                     m_dynamicRangeActive = false; // 停用动态量程
+
+                    applyHardLimitsToCurrentRange();
                     return true; // 需要重建
                 }
             }
@@ -397,6 +396,8 @@ namespace ProGraphics {
                 // qDebug() << "数据超出当前范围，扩展量程";
                 updateTargetRange(dataMin, dataMax);
                 smoothUpdateCurrentRange(calculateSmoothFactor(true, false));
+
+                applyHardLimitsToCurrentRange();
                 return true;
             }
 
@@ -417,6 +418,8 @@ namespace ProGraphics {
                 float avgMax = calculateAverageMax();
                 updateTargetRange(dataMin, avgMax > dataMax ? avgMax : dataMax);
                 smoothUpdateCurrentRange(calculateSmoothFactor(false, dataMax < m_currentMax * 0.5f));
+
+                applyHardLimitsToCurrentRange();
                 return isSignificantChange(oldMin, oldMax);
             }
 
@@ -428,7 +431,7 @@ namespace ProGraphics {
         std::pair<float, float> getDisplayRange() const { return {m_currentMin, m_currentMax}; }
 
         // 设置显示范围
-        void setDisplayRange(float min, float max, bool fixedRange = false) {
+        void setDisplayRange(float min, float max) {
             // 直接设置目标范围
             m_targetMin = min;
             m_targetMax = max;
@@ -437,14 +440,7 @@ namespace ProGraphics {
             m_currentMin = min;
             m_currentMax = max;
 
-            // 如果设置为固定范围，禁用动态更新
-            m_config.useFixedRange = fixedRange;
-
-            // 如果是最小范围，也更新最小范围配置
-            if (fixedRange && max <= 10.0f) {
-                m_config.minimumRangeMax = max;
-                m_config.enforceMinimumRange = true;
-            }
+            applyHardLimitsToCurrentRange();
         }
 
         // 直接设置目标范围
@@ -452,6 +448,48 @@ namespace ProGraphics {
             m_targetMin = min;
             m_targetMax = max;
         }
+
+        void setInitialRange(float min, float max) {
+            m_initialMin = min;
+            m_initialMax = max;
+
+            if (!m_initialized || !m_dynamicRangeActive) {
+                m_currentMin = min;
+                m_currentMax = max;
+                m_targetMin = min;
+                m_targetMax = max;
+            }
+        }
+
+        std::pair<float, float> getInitialRange() const {
+            return {m_initialMin, m_initialMax};
+        }
+
+        void setHardLimits(float min, float max, bool enabled = true) {
+            m_config.hardLimitMin = min;
+            m_config.hardLimitMax = max;
+            m_config.enableHardLimits = enabled;
+
+            if (enabled) {
+                applyHardLimitsToCurrentRange();
+            }
+        }
+
+        std::pair<float, float> getHardLimits() const {
+            return {m_config.hardLimitMin, m_config.hardLimitMax};
+        }
+
+        void enableHardLimits(bool enabled) {
+            m_config.enableHardLimits = enabled;
+            if (enabled) {
+                applyHardLimitsToCurrentRange();
+            }
+        }
+
+        bool isHardLimitsEnabled() const {
+            return m_config.enableHardLimits;
+        }
+
 
         // 重置
         void reset() {
@@ -487,8 +525,8 @@ namespace ProGraphics {
                 m_currentMax = m_initialMax;
                 m_targetMin = m_initialMin;
                 m_targetMax = m_initialMax;
-                qDebug() << "initializeRange: 数据在初始范围内，保持初始范围["
-                        << m_initialMin << "," << m_initialMax << "]";
+                // qDebug() << "initializeRange: 数据在初始范围内，保持初始范围["
+                //         << m_initialMin << "," << m_initialMax << "]";
                 return;
             }
 
@@ -549,6 +587,39 @@ namespace ProGraphics {
             qDebug() << "正常初始化范围: 数据[" << dataMin << "," << dataMax
                     << "] -> 显示[" << m_currentMin << "," << m_currentMax
                     << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
+        }
+
+        std::pair<float, float> preprocessInputData(float dataMin, float dataMax) {
+            if (!m_config.enableHardLimits) {
+                return {dataMin, dataMax};
+            }
+
+            // 将输入数据限制在硬限制范围内
+            float clampedMin = std::max(dataMin, m_config.hardLimitMin);
+            float clampedMax = std::min(dataMax, m_config.hardLimitMax);
+
+            if (clampedMin != dataMin || clampedMax != dataMax) {
+                qDebug() << "硬限制生效: 原始[" << dataMin << "," << dataMax
+                        << "] -> 限制[" << clampedMin << "," << clampedMax << "]";
+            }
+
+            return {clampedMin, clampedMax};
+        }
+
+
+        void applyHardLimitsToCurrentRange() {
+            if (!m_config.enableHardLimits) return;
+
+            float oldMin = m_currentMin, oldMax = m_currentMax;
+            m_currentMin = std::max(m_currentMin, m_config.hardLimitMin);
+            m_currentMax = std::min(m_currentMax, m_config.hardLimitMax);
+            m_targetMin = std::max(m_targetMin, m_config.hardLimitMin);
+            m_targetMax = std::min(m_targetMax, m_config.hardLimitMax);
+
+            if (oldMin != m_currentMin || oldMax != m_currentMax) {
+                qDebug() << "显示范围被硬限制: [" << oldMin << "," << oldMax
+                        << "] -> [" << m_currentMin << "," << m_currentMax << "]";
+            }
         }
 
         // 更新目标范围
