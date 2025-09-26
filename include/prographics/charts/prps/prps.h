@@ -92,7 +92,7 @@ namespace ProGraphics {
     */
         void setInitialRange(float min, float max) {
             m_dynamicRange.setInitialRange(min, max);
-            update();
+            forceUpdateRange();
         }
 
         /**
@@ -103,6 +103,23 @@ namespace ProGraphics {
         }
 
         /**
+     * @brief 强制更新显示范围并重建数据
+     */
+        void forceUpdateRange() {
+            auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
+
+            // 更新坐标轴刻度
+            float step = calculateNiceTickStep(newMax - newMin, m_dynamicRange.getConfig().targetTickCount);
+            setTicksRange('y', newMin, newMax, step);
+            // 重新计算所有线组的位置
+            recalculateLineGroups();
+
+            // 强制重绘
+            update();
+        }
+
+
+        /**
          * @brief 设置硬限制范围（防止异常数据影响显示）
          * @param min 硬限制最小值
          * @param max 硬限制最大值
@@ -110,7 +127,7 @@ namespace ProGraphics {
          */
         void setHardLimits(float min, float max, bool enabled = true) {
             m_dynamicRange.setHardLimits(min, max, enabled);
-            update();
+            forceUpdateRange();
         }
 
         /**
@@ -126,7 +143,7 @@ namespace ProGraphics {
          */
         void enableHardLimits(bool enabled) {
             m_dynamicRange.enableHardLimits(enabled);
-            update();
+            forceUpdateRange();
         }
 
         /**
