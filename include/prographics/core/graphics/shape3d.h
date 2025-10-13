@@ -5,6 +5,7 @@
 #include <QOpenGLExtraFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLTexture>
+#include <QQuaternion>
 #include <QOpenGLVertexArrayObject>
 
 namespace ProGraphics {
