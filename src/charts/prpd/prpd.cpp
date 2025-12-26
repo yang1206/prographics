@@ -50,30 +50,26 @@ namespace ProGraphics {
         // 预分配缓冲区空间
         m_cycleBuffer.data.reserve(PRPDConstants::MAX_CYCLES);
         m_cycleBuffer.binIndices.reserve(PRPDConstants::MAX_CYCLES);
-        m_renderBatches.reserve(100); // 预估的批次数量
+        m_renderBatchMap.reserve(100);
     }
 
     void PRPDChart::paintGLObjects() {
-        // 先绘制坐标系
         Coordinate2D::paintGLObjects();
 
-        if (!m_pointRenderer || m_renderBatches.empty()) {
+        if (!m_pointRenderer || m_renderBatchMap.empty()) {
             return;
         }
 
-        // 绘制放电点
-        for (const auto &batch: m_renderBatches) {
-            if (batch.transforms.empty())
+        for (auto &[freq, batch]: m_renderBatchMap) {
+            if (batch.pointMap.empty())
                 continue;
 
-            // 设置该批次的颜色
             QVector4D color = calculateColor(batch.frequency);
-            m_pointRenderer->setColor(color);
+            batch.rebuildTransforms(color);
 
-            // 绘制该批次的所有点
+            m_pointRenderer->setColor(color);
             m_pointRenderer->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(), batch.transforms);
         }
-        // 恢复OpenGL状态
         glPopAttrib();
     }
 
@@ -119,10 +115,13 @@ namespace ProGraphics {
                 if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
                     int &freq = m_frequencyTable[phaseIdx][binIdx];
                     if (freq > 0) {
+                        int oldFreq = freq;
                         freq--;
-                        // 如果频次变为0，标记需要更新最大频次
-                        if (freq == 0 || freq + 1 == m_maxFrequency) {
-                            // 在下一步更新最大频次
+                        
+                        removePointFromBatch(phaseIdx, binIdx, oldFreq);
+                        
+                        if (freq > 0) {
+                            addPointToBatch(phaseIdx, binIdx, freq);
                         }
                     }
                 }
@@ -140,12 +139,18 @@ namespace ProGraphics {
             m_cycleBuffer.isFull = true;
         }
 
-        // 更新新数据的频次
         for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
             BinIndex binIdx = currentBinIndices[phaseIdx];
             if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
                 int &freq = m_frequencyTable[phaseIdx][binIdx];
+                int oldFreq = freq;
                 freq++;
+                
+                if (oldFreq > 0) {
+                    removePointFromBatch(phaseIdx, binIdx, oldFreq);
+                }
+                addPointToBatch(phaseIdx, binIdx, freq);
+                
                 if (freq > m_maxFrequency) {
                     m_maxFrequency = freq;
                 }
@@ -164,9 +169,33 @@ namespace ProGraphics {
             }
         }
 
-        // 更新渲染数据
-        updatePointTransformsFromFrequencyTable();
         update();
+    }
+    
+    void PRPDChart::removePointFromBatch(int phaseIdx, BinIndex binIdx, int frequency) {
+        auto it = m_renderBatchMap.find(frequency);
+        if (it != m_renderBatchMap.end()) {
+            it->second.pointMap.erase({phaseIdx, binIdx});
+            it->second.needsRebuild = true;
+            
+            if (it->second.pointMap.empty()) {
+                m_renderBatchMap.erase(it);
+            }
+        }
+    }
+    
+    void PRPDChart::addPointToBatch(int phaseIdx, BinIndex binIdx, int frequency) {
+        float phase = static_cast<float>(phaseIdx) * (PRPDConstants::PHASE_MAX / m_phasePoints);
+        float amplitude = getBinCenterAmplitude(binIdx);
+        
+        Transform2D transform;
+        transform.position = QVector2D(mapPhaseToGL(phase), mapAmplitudeToGL(amplitude));
+        transform.scale = QVector2D(1.0f, 1.0f);
+        
+        auto& batch = m_renderBatchMap[frequency];
+        batch.frequency = frequency;
+        batch.pointMap[{phaseIdx, binIdx}] = transform;
+        batch.needsRebuild = true;
     }
 
     void PRPDChart::clearFrequencyTable() {
@@ -177,8 +206,7 @@ namespace ProGraphics {
     }
 
     void PRPDChart::updatePointTransformsFromFrequencyTable() {
-        // 按频次分组
-        std::map<int, RenderBatch> batchMap; // 频次 -> 批次
+        m_renderBatchMap.clear();
 
         for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
             float phase = static_cast<float>(phaseIdx) * (PRPDConstants::PHASE_MAX / m_phasePoints);
@@ -193,19 +221,12 @@ namespace ProGraphics {
                 Transform2D transform;
                 transform.position = QVector2D(mapPhaseToGL(phase), mapAmplitudeToGL(amplitude));
                 transform.scale = QVector2D(1.0f, 1.0f);
-                transform.color = calculateColor(frequency);
 
-                auto &batch = batchMap[frequency];
+                auto &batch = m_renderBatchMap[frequency];
                 batch.frequency = frequency;
-                batch.transforms.push_back(std::move(transform));
+                batch.pointMap[{phaseIdx, binIdx}] = transform;
+                batch.needsRebuild = true;
             }
-        }
-
-        // 转换为vector
-        m_renderBatches.clear();
-        m_renderBatches.reserve(batchMap.size());
-        for (auto &[_, batch]: batchMap) {
-            m_renderBatches.push_back(std::move(batch));
         }
     }
 

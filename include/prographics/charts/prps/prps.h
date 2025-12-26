@@ -102,6 +102,11 @@ namespace ProGraphics {
             return m_dynamicRange.getInitialRange();
         }
 
+        std::pair<float, float> getDisplayRange() const {
+            return m_dynamicRange.getDisplayRange();
+        }
+
+        
         /**
      * @brief 强制更新显示范围并重建数据
      */

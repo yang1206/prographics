@@ -12,7 +12,7 @@ namespace ProGraphics {
 
         // 数据采样相关
         static constexpr int PHASE_POINTS = 200; // 相位采样点数
-        static constexpr int MAX_CYCLES = 100; // 最大周期缓存数
+        static constexpr int MAX_CYCLES = 500; // 最大周期缓存数
 
         // 坐标范围
         static constexpr float PHASE_MAX = 360.0f; // 相位最大值
@@ -52,6 +52,12 @@ namespace ProGraphics {
         std::pair<float, float> getInitialRange() const {
             return m_dynamicRange.getInitialRange();
         }
+
+
+        std::pair<float, float> getDisplayRange() const {
+            return m_dynamicRange.getDisplayRange();
+        }
+
 
         /**
          * @brief 强制更新显示范围并重建数据
@@ -105,7 +111,7 @@ namespace ProGraphics {
             m_cycleBuffer.binIndices.clear();
             m_cycleBuffer.currentIndex = 0;
             m_cycleBuffer.isFull = false;
-            m_renderBatches.clear();
+            m_renderBatchMap.clear();
             m_dynamicRange.setDisplayRange(m_amplitudeMin, m_amplitudeMax);
             rebuildFrequencyTable();
             update();
@@ -122,13 +128,33 @@ namespace ProGraphics {
     private:
         // ===== 数据结构定义 =====
 
-        // 渲染批次：相同频次的点一起渲染
-        struct RenderBatch {
-            std::vector<Transform2D> transforms; // 变换矩阵数组
-            int frequency; // 该批次的频次
+        struct PairHash {
+            size_t operator()(const std::pair<int, int> &p) const {
+                return std::hash<int>()(p.first) ^ (std::hash<int>()(p.second) << 1);
+            }
         };
 
-        using BinIndex = uint16_t; // 压缩后的幅值类型
+        struct RenderBatch {
+            std::unordered_map<std::pair<int, int>, Transform2D, PairHash> pointMap;
+            int frequency;
+
+            mutable std::vector<Transform2D> transforms;
+            mutable bool needsRebuild = true;
+
+            void rebuildTransforms(const QVector4D &color) const {
+                if (!needsRebuild) return;
+                transforms.clear();
+                transforms.reserve(pointMap.size());
+                for (const auto &[_, transform]: pointMap) {
+                    Transform2D t = transform;
+                    t.color = color;
+                    transforms.push_back(t);
+                }
+                needsRebuild = false;
+            }
+        };
+
+        using BinIndex = uint16_t;
         using FrequencyTable = std::array<std::array<int, PRPDConstants::AMPLITUDE_BINS>, PRPDConstants::PHASE_POINTS>;
 
         // 环形缓冲区：存储原始周期数据
@@ -141,10 +167,10 @@ namespace ProGraphics {
 
         // ===== 数据成员 =====
         // 数据存储
-        CycleBuffer m_cycleBuffer; // 周期数据缓冲区
-        FrequencyTable m_frequencyTable; // 频次统计表
-        std::vector<RenderBatch> m_renderBatches; // 渲染批次
-        int m_maxFrequency = 0; // 当前最大频次
+        CycleBuffer m_cycleBuffer;
+        FrequencyTable m_frequencyTable;
+        std::unordered_map<int, RenderBatch> m_renderBatchMap;
+        int m_maxFrequency = 0;
 
         // 渲染器
         std::unique_ptr<Point2D> m_pointRenderer; // 点渲染器
@@ -164,13 +190,15 @@ namespace ProGraphics {
         bool m_dynamicRangeEnabled = true;
 
         // ===== 私有方法 =====
-        // 数据处理
-
         void updatePointTransformsFromFrequencyTable();
 
         void rebuildFrequencyTable();
 
         void clearFrequencyTable();
+
+        void removePointFromBatch(int phaseIdx, BinIndex binIdx, int frequency);
+
+        void addPointToBatch(int phaseIdx, BinIndex binIdx, int frequency);
 
         // 坐标转换
         float mapPhaseToGL(float phase) const;
