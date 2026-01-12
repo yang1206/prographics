@@ -81,49 +81,27 @@ namespace ProGraphics {
 
     // 优化的刻度计算函数
     inline float calculateNiceTickStep(float range, int targetTicks = 6) {
-        // 确保范围和目标刻度数有效
-        if (range <= 0 || targetTicks <= 0) {
+        if (range <= 0 || targetTicks <= 1) {
             return 1.0f;
         }
 
-        // 计算粗略的步长
-        float roughStep = range / static_cast<float>(targetTicks);
-
-        // 计算步长的数量级
+        // 关键：刻度数 = 步数 + 1，所以除以 (targetTicks - 1)
+        float roughStep = range / static_cast<float>(targetTicks - 1);
         float magnitude = std::pow(10.0f, std::floor(std::log10(roughStep)));
-
-        // 计算标准化步长（相对于数量级）
         float normalizedStep = roughStep / magnitude;
 
-        // 选择美观的步长倍数
-        // 使用更多的可能值，减少大跳跃
+        // 简化的阈值：只用 1, 2, 5, 10
         float niceStep;
-        if (normalizedStep < 1.2f) {
+        if (normalizedStep <= 1.0f) {
             niceStep = 1.0f;
-        } else if (normalizedStep < 2.5f) {
+        } else if (normalizedStep <= 2.0f) {
             niceStep = 2.0f;
-        } else if (normalizedStep < 4.0f) {
-            niceStep = 2.5f; // 添加2.5作为一个选项
-        } else if (normalizedStep < 7.0f) {
+        } else if (normalizedStep <= 5.0f) {
             niceStep = 5.0f;
         } else {
             niceStep = 10.0f;
         }
 
-        // 添加抗抽搐逻辑：
-        // 检查是否非常接近下一个级别的步长
-        // 如果非常接近（例如在边界的10%以内），选择更大的步长
-        if (normalizedStep > 0.9f && normalizedStep < 1.0f) {
-            niceStep = 1.0f; // 确保稳定在1.0
-        } else if (normalizedStep > 1.8f && normalizedStep < 2.0f) {
-            niceStep = 2.0f; // 确保稳定在2.0
-        } else if (normalizedStep > 4.5f && normalizedStep < 5.0f) {
-            niceStep = 5.0f; // 确保稳定在5.0
-        } else if (normalizedStep > 9.0f && normalizedStep < 10.0f) {
-            niceStep = 10.0f; // 确保稳定在10.0
-        }
-
-        // 最终步长
         return niceStep * magnitude;
     }
 
@@ -621,9 +599,9 @@ namespace ProGraphics {
             m_currentMin = niceMin;
             m_currentMax = niceMax;
 
-            qDebug() << "正常初始化范围: 数据[" << dataMin << "," << dataMax
-                    << "] -> 显示[" << m_currentMin << "," << m_currentMax
-                    << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
+            // qDebug() << "正常初始化范围: 数据[" << dataMin << "," << dataMax
+            //         << "] -> 显示[" << m_currentMin << "," << m_currentMax
+            //         << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
         }
 
         void applyHardLimitsToCurrentRange() {
@@ -635,10 +613,10 @@ namespace ProGraphics {
             m_targetMin = std::max(m_targetMin, m_config.hardLimitMin);
             m_targetMax = std::min(m_targetMax, m_config.hardLimitMax);
 
-            if (oldMin != m_currentMin || oldMax != m_currentMax) {
-                qDebug() << "显示范围被硬限制: [" << oldMin << "," << oldMax
-                        << "] -> [" << m_currentMin << "," << m_currentMax << "]";
-            }
+            // if (oldMin != m_currentMin || oldMax != m_currentMax) {
+            //     qDebug() << "显示范围被硬限制: [" << oldMin << "," << oldMax
+            //             << "] -> [" << m_currentMin << "," << m_currentMax << "]";
+            // }
         }
 
         // 更新目标范围
@@ -695,8 +673,8 @@ namespace ProGraphics {
             m_targetMin = niceMin;
             m_targetMax = niceMax;
 
-            qDebug() << "正常更新目标范围: 数据[" << dataMin << "," << dataMax
-                    << "] -> 目标[" << m_targetMin << "," << m_targetMax << "]";
+            // qDebug() << "正常更新目标范围: 数据[" << dataMin << "," << dataMax
+            //         << "] -> 目标[" << m_targetMin << "," << m_targetMax << "]";
         }
 
         // 平滑更新当前范围，接受平滑因子参数

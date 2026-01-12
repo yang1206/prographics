@@ -337,7 +337,8 @@ void PRPSChart::forceUpdateRange() {
 }
 
 void PRPSChart::updateAxisTicks(float min, float max) {
-    float step = calculateNiceTickStep(max - min, 6);
+    int targetTicks = m_dynamicRange.getConfig().targetTickCount;
+    float step = calculateNiceTickStep(max - min, targetTicks);
     setTicksRange('y', min, max, step);
 }
 
