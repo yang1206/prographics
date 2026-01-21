@@ -1,4 +1,4 @@
-﻿#include "prographics/charts/prps/prps.h"
+#include "prographics/charts/prps/prps.h"
 #include <random>
 #include "prographics/utils/utils.h"
 
@@ -358,7 +358,7 @@ float PRPSChart::mapPhaseToGL(float phase) const {
 }
 
 float PRPSChart::mapAmplitudeToGL(float amplitude) const {
-    float displayMin, displayMax;
+    float displayMin = m_fixedMin, displayMax = m_fixedMax;
 
     switch (m_rangeMode) {
         case RangeMode::Fixed:
@@ -386,7 +386,7 @@ float PRPSChart::mapGLToPhase(float glX) const {
 }
 
 float PRPSChart::mapGLToAmplitude(float glY) const {
-    float displayMin, displayMax;
+    float displayMin = m_fixedMin, displayMax = m_fixedMax;
 
     switch (m_rangeMode) {
         case RangeMode::Fixed:

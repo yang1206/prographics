@@ -607,16 +607,11 @@ namespace ProGraphics {
         void applyHardLimitsToCurrentRange() {
             if (!m_config.enableHardLimits) return;
 
-            float oldMin = m_currentMin, oldMax = m_currentMax;
+
             m_currentMin = std::max(m_currentMin, m_config.hardLimitMin);
             m_currentMax = std::min(m_currentMax, m_config.hardLimitMax);
             m_targetMin = std::max(m_targetMin, m_config.hardLimitMin);
             m_targetMax = std::min(m_targetMax, m_config.hardLimitMax);
-
-            // if (oldMin != m_currentMin || oldMax != m_currentMax) {
-            //     qDebug() << "显示范围被硬限制: [" << oldMin << "," << oldMax
-            //             << "] -> [" << m_currentMin << "," << m_currentMax << "]";
-            // }
         }
 
         // 更新目标范围

@@ -293,9 +293,9 @@ void MainWindow::onApplyRange() {
 }
 
 void MainWindow::onGenerateData() {
-    std::vector<float> data = generateRandomData();
-    m_prpdChart->addCycleData(data);
-    m_prpsChart->addCycleData(data);
+    std::vector<float> randomData = generateRandomData();
+    m_prpdChart->addCycleData(randomData);
+    m_prpsChart->addCycleData(randomData);
 }
 
 void MainWindow::onGenerateBatch(int count) {
@@ -370,7 +370,7 @@ std::vector<float> MainWindow::generateRandomData() {
     float min = m_dataMinSpin->value();
     float max = m_dataMaxSpin->value();
 
-    std::vector<float> data(200);
+    std::vector<float> randomData(200);
     std::uniform_real_distribution<float> dist(min, max);
     std::uniform_real_distribution<float> noise(-1.0f, 1.0f);
 
@@ -378,11 +378,11 @@ std::vector<float> MainWindow::generateRandomData() {
         if (i < 160) {
             float phase = i / 200.0f * 2.0f * 3.14159f;
             float baseValue = (min + max) / 2.0f + (max - min) / 4.0f * std::sin(phase * 3.0f);
-            data[i] = baseValue + noise(gen) * 0.5f;
+            randomData[i] = baseValue + noise(gen) * 0.5f;
         } else {
-            data[i] = dist(gen);
+            randomData[i] = dist(gen);
         }
     }
 
-    return data;
+    return randomData;
 }

@@ -1,4 +1,4 @@
-﻿#include "prographics/core/graphics/shape3d.h"
+#include "prographics/core/graphics/shape3d.h"
 
 namespace ProGraphics {
 std::unique_ptr<QOpenGLShaderProgram> Shape3D::s_shaderProgram;
@@ -20,7 +20,7 @@ Shape3D::~Shape3D() {
 void Shape3D::initialize() {
   auto vertices = generateVertices(32); // 默认分段数
   setupBuffer(vertices, 8);             // stride = 8 (3 pos + 3 normal + 2 tex)
-  m_vertexCount = vertices.size() / 8;
+  m_vertexCount = static_cast<int>(vertices.size() / 8);
 }
 
 void Shape3D::initializeShader() {
@@ -267,7 +267,7 @@ void Shape3D::drawInstanced(const QMatrix4x4 &projection,
   if (m_material.wireframe) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
   }
-  glDrawArraysInstanced(GL_TRIANGLES, 0, m_vertexCount, instances.size());
+  glDrawArraysInstanced(GL_TRIANGLES, 0, m_vertexCount, static_cast<GLsizei>(instances.size()));
   if (m_material.wireframe) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   }
@@ -308,7 +308,7 @@ void Shape3D::updateInstanceData(const std::vector<Transform> &instances) {
   }
 
   m_instanceVBO.bind();
-  m_instanceVBO.allocate(matrices.data(), matrices.size() * sizeof(QMatrix4x4));
+  m_instanceVBO.allocate(matrices.data(), static_cast<int>(matrices.size() * sizeof(QMatrix4x4)));
   m_instanceVBO.release();
 }
 
@@ -330,7 +330,7 @@ void Shape3D::updateLOD(const QVector3D &cameraPos) {
     m_currentLOD = newLOD;
     auto vertices = generateVertices(m_currentLOD);
     setupBuffer(vertices, 8); // stride = 8 (3 pos + 3 normal + 2 tex)
-    m_vertexCount = vertices.size() / 8;
+    m_vertexCount = static_cast<int>(vertices.size() / 8);
   }
 }
 
@@ -362,7 +362,7 @@ void Shape3D::setupBuffer(const std::vector<float> &vertices, int stride) {
     m_vbo.create();
   }
   m_vbo.bind();
-  m_vbo.allocate(vertices.data(), vertices.size() * sizeof(float));
+  m_vbo.allocate(vertices.data(), static_cast<int>(vertices.size() * sizeof(float)));
 
   // 位置
   glEnableVertexAttribArray(0);
@@ -571,7 +571,7 @@ void Cylinder::initialize() {
   }
 
   setupBuffer(vertices, 6);
-  m_vertexCount = vertices.size() / 6;
+  m_vertexCount = static_cast<int>(vertices.size() / 6);
 }
 
 // 球体实现
@@ -659,7 +659,7 @@ void Sphere::initialize() {
   }
 
   setupBuffer(vertices, 6);
-  m_vertexCount = vertices.size() / 6;
+  m_vertexCount = static_cast<int>(vertices.size() / 6);
 }
 
 // 箭头实现
@@ -797,6 +797,6 @@ void Arrow::initialize() {
   }
 
   setupBuffer(vertices, 6);
-  m_vertexCount = vertices.size() / 6;
+  m_vertexCount = static_cast<int>(vertices.size() / 6);
 }
 } // namespace ProGraphics

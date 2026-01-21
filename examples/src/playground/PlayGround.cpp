@@ -1,4 +1,4 @@
-﻿#include "PlayGround.h"
+#include "PlayGround.h"
 #include <QDebug>
 #include <QPainter>
 #include <QTimer>
@@ -302,8 +302,8 @@ void PlayGround::initializeGLObjects() {
   // const int numInstances = 20;  // 20条线段
 
   const float spacing = 0.2f; // 线段间距
-  const float minHeight = 0.5f; // 最小高度
-  const float maxHeight = 10.0f; // 最大高度
+  [[maybe_unused]] const float minHeight = 0.5f; // 最小高度
+  [[maybe_unused]] const float maxHeight = 10.0f; // 最大高度
   const float startX = 0.0f; // 起始X坐标
 
   for (int i = 0; i < numInstances; ++i) {
@@ -484,10 +484,12 @@ void PlayGround::paintGLObjects() {
   //                     m_camera.getViewMatrix());
   // }
 
+  // [[maybe_unused]] const float minHeight = 0.5f;
+  // [[maybe_unused]] const float maxHeight = 2.0f;
   const float minHeight = 0.5f;
   const float maxHeight = 2.0f;
   const float animationSpeed = 2.0f; // 控制动画速度
-  const float phaseOffset = M_PI / 6.0f; // 相位差，使波浪效果更明显
+  const float phaseOffset = static_cast<float>(M_PI) / 6.0f; // 相位差，使波浪效果更明显
 
   for (size_t i = 0; i < m_lineInstances.size(); ++i) {
     float t = static_cast<float>(i) / m_lineInstances.size();

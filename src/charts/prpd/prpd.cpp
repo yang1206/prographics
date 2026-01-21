@@ -1,4 +1,4 @@
-﻿#include "prographics/charts/prpd/prpd.h"
+#include "prographics/charts/prpd/prpd.h"
 #include "prographics/charts/prps/prps.h"
 #include "prographics/utils/utils.h"
 
@@ -347,7 +347,7 @@ float PRPDChart::mapPhaseToGL(float phase) const {
 }
 
 float PRPDChart::mapAmplitudeToGL(float amplitude) const {
-    float displayMin, displayMax;
+    float displayMin = m_fixedMin, displayMax = m_fixedMax;
 
     switch (m_rangeMode) {
         case RangeMode::Fixed:
@@ -400,7 +400,7 @@ void PRPDChart::rebuildFrequencyTable() {
 }
 
 PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude) const {
-    float displayMin, displayMax;
+    float displayMin = m_fixedMin, displayMax = m_fixedMax;
 
     switch (m_rangeMode) {
         case RangeMode::Fixed:
@@ -433,7 +433,7 @@ PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude) const {
 }
 
 float PRPDChart::getBinCenterAmplitude(BinIndex binIndex) const {
-    float displayMin, displayMax;
+    float displayMin = m_fixedMin, displayMax = m_fixedMax;
 
     switch (m_rangeMode) {
         case RangeMode::Fixed:
