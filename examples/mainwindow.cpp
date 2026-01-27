@@ -207,6 +207,15 @@ void MainWindow::setupUI() {
         m_prpsChart->resetData();
     });
 
+    // ==================== 测试按钮 ====================
+    QGroupBox *testGroup = new QGroupBox("弹窗测试");
+    QVBoxLayout *testLayout = new QVBoxLayout(testGroup);
+
+    QPushButton *testDialogBtn = new QPushButton("测试 QDialog");
+    testLayout->addWidget(testDialogBtn);
+
+    connect(testDialogBtn, &QPushButton::clicked, this, &MainWindow::onTestDialog);
+
     // ==================== 状态显示 ====================
     QGroupBox *statusGroup = new QGroupBox("当前状态");
     QVBoxLayout *statusLayout = new QVBoxLayout(statusGroup);
@@ -222,6 +231,7 @@ void MainWindow::setupUI() {
     controlLayout->addWidget(m_dynamicConfigWidget);
     controlLayout->addWidget(hardLimitGroup);
     controlLayout->addLayout(actionLayout);
+    controlLayout->addWidget(testGroup);
     controlLayout->addWidget(statusGroup);
     controlLayout->addStretch();
 
@@ -386,3 +396,27 @@ std::vector<float> MainWindow::generateRandomData() {
 
     return randomData;
 }
+
+void MainWindow::onTestDialog() {
+    QDialog *dialog = new QDialog(this);
+    dialog->setWindowTitle("QDialog 测试");
+    dialog->resize(800, 600);
+
+    QVBoxLayout *layout = new QVBoxLayout(dialog);
+
+    ProGraphics::PRPDChart *prpdChart = new ProGraphics::PRPDChart(dialog);
+    prpdChart->setFixedRange(-75, -30);
+
+    std::vector<float> testData = generateRandomData();
+    prpdChart->addCycleData(testData);
+
+    layout->addWidget(prpdChart);
+
+    QPushButton *closeBtn = new QPushButton("关闭");
+    connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::accept);
+    layout->addWidget(closeBtn);
+
+    dialog->exec();
+    delete dialog;
+}
+

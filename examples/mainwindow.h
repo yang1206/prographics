@@ -14,6 +14,7 @@
 #include <QSpinBox>
 #include <QComboBox>
 #include <QStackedWidget>
+#include <QDialog>
 #include "prographics/charts/prpd/prpd.h"
 #include "prographics/charts/prps/prps.h"
 
@@ -30,6 +31,7 @@ private slots:
     void onApplyRange();
     void onResetAll();
     void updateStatus();
+    void onTestDialog();
 
 private:
     void setupUI();
