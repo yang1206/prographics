@@ -11,10 +11,6 @@ namespace ProGraphics {
         format.setSamples(4); // 设置多重采样
         format.setSwapInterval(1); // 垂直同步
         setFormat(format);
-
-        // 强制初始化 OpenGL 上下文
-        makeCurrent();
-        doneCurrent();
     }
 
     BaseGLWidget::~BaseGLWidget() {
@@ -57,7 +53,6 @@ namespace ProGraphics {
     void BaseGLWidget::paintGL() {
         glClear(GL_COLOR_BUFFER_BIT);
         paintGLObjects();
-        update();
     }
 
     void BaseGLWidget::resizeGL(int w, int h) { glViewport(0, 0, w, h); }

@@ -4,167 +4,242 @@
 #include "prographics/utils/utils.h"
 
 namespace ProGraphics {
-    // PRPD图表相关常量定义
+    /**
+     * @brief PRPD 图表相关常量
+     */
     struct PRPDConstants {
-        // OpenGL渲染相关
-        static constexpr float GL_AXIS_LENGTH = 5.0f; // OpenGL坐标系长度
-        static constexpr float POINT_SIZE = 8.0f; // 点的渲染大小
-
-        // 数据采样相关
-        static constexpr int PHASE_POINTS = 200; // 相位采样点数
-        static constexpr int MAX_CYCLES = 100; // 最大周期缓存数
-
-        // 坐标范围
-        static constexpr float PHASE_MAX = 360.0f; // 相位最大值
-        static constexpr float PHASE_MIN = 0.0f; // 相位最小值
-
-        static constexpr int AMPLITUDE_BINS = 100; // 幅值划分的格子数
+        static constexpr float GL_AXIS_LENGTH = 5.0f; ///< OpenGL 坐标轴长度
+        static constexpr float POINT_SIZE = 8.0f; ///< 点渲染大小
+        static constexpr int PHASE_POINTS = 200; ///< 相位采样点数
+        static constexpr int MAX_CYCLES = 500; ///< 最大周期缓存数
+        static constexpr float PHASE_MAX = 360.0f; ///< 相位最大值
+        static constexpr float PHASE_MIN = 0.0f; ///< 相位最小值
+        static constexpr int AMPLITUDE_BINS = 100; ///< 幅值划分格子数
     };
 
+    /**
+     * @brief PRPD (Phase Resolved Partial Discharge) 局部放电相位分布图
+     *
+     * 用于显示局部放电信号的相位-幅值-频次三维分布关系。
+     * 支持三种量程模式：固定、自动、自适应。
+     */
     class PRPDChart : public Coordinate2D {
         Q_OBJECT
 
     public:
+        /**
+         * @brief 量程模式
+         */
+        enum class RangeMode {
+            Fixed, ///< 固定模式 - 范围不随数据变化
+            Auto, ///< 自动模式 - 完全根据数据动态调整
+            Adaptive ///< 自适应模式 - 在初始范围基础上智能调整
+        };
+
         explicit PRPDChart(QWidget *parent = nullptr);
 
         ~PRPDChart() override;
 
-        // 公共接口
-        void addCycleData(const std::vector<float> &cycleData); ///< 添加一个周期的数据
-        void setAmplitudeRange(float min, float max); ///< 设置幅值范围
-        void setPhaseRange(float min, float max); ///< 设置相位范围
-        void setDynamicRangeEnabled(bool enabled); ///< 设置是否启用动态量程
-        bool isDynamicRangeEnabled() const; ///< 获取动态量程是否启用
-        void setDynamicRangeConfig(const DynamicRange::DynamicRangeConfig &config); ///< 设置动态量程配置
-        /**
-     * @brief 设置初始显示范围（基准范围）
-     * @param min 初始最小值
-     * @param max 初始最大值
-     */
-        void setInitialRange(float min, float max) {
-            m_dynamicRange.setInitialRange(min, max);
-            forceUpdateRange();
-        }
+        // ==================== 量程设置 API ====================
 
         /**
-         * @brief 获取初始显示范围
+         * @brief 设置固定量程
+         * @param min 最小值
+         * @param max 最大值
          */
-        std::pair<float, float> getInitialRange() const {
-            return m_dynamicRange.getInitialRange();
-        }
+        void setFixedRange(float min, float max);
 
         /**
-         * @brief 强制更新显示范围并重建数据
-         * 用于立即应用初始范围或硬限制的变化
-        */
-        void forceUpdateRange() {
-            auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
-            float step = calculateNiceTickStep(newMax - newMin, m_dynamicRange.getConfig().targetTickCount);
-            setTicksRange('y', newMin, newMax, step);
-            rebuildFrequencyTable();
-            // 强制重绘
-            update();
-        }
+         * @brief 设置自动量程
+         * @param config 动态量程配置参数
+         */
+        void setAutoRange(const DynamicRange::DynamicRangeConfig &config = DynamicRange::DynamicRangeConfig{});
 
         /**
-         * @brief 设置硬限制范围（防止异常数据影响显示）
+         * @brief 设置自适应量程
+         * @param initialMin 初始最小值
+         * @param initialMax 初始最大值
+         * @param config 动态量程配置参数
+         */
+        void setAdaptiveRange(float initialMin,
+                              float initialMax,
+                              const DynamicRange::DynamicRangeConfig &config = DynamicRange::DynamicRangeConfig{});
+
+        // ==================== 量程查询 API ====================
+
+        /**
+         * @brief 获取当前量程模式
+         */
+        RangeMode getRangeMode() const { return m_rangeMode; }
+
+        /**
+         * @brief 获取当前显示范围
+         * @return {最小值, 最大值}
+         */
+        std::pair<float, float> getCurrentRange() const;
+
+        /**
+         * @brief 获取配置的范围（用于 UI 显示）
+         * @return {配置最小值, 配置最大值}
+         */
+        std::pair<float, float> getConfiguredRange() const;
+
+        // ==================== 运行时调整 API ====================
+
+        /**
+         * @brief 更新自动量程配置（仅在 Auto/Adaptive 模式下有效）
+         * @param config 新的配置参数
+         */
+        void updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig &config);
+
+        /**
+         * @brief 切换到固定量程
+         */
+        void switchToFixedRange(float min, float max);
+
+        /**
+         * @brief 切换到自动量程
+         */
+        void switchToAutoRange();
+
+        // ==================== 硬限制 API ====================
+
+        /**
+         * @brief 设置硬限制范围（防止异常数据导致量程过大）
          * @param min 硬限制最小值
          * @param max 硬限制最大值
-         * @param enabled 是否启用硬限制
-         */
-        void setHardLimits(float min, float max, bool enabled = true) {
-            m_dynamicRange.setHardLimits(min, max, enabled);
-            forceUpdateRange();
-        }
-
-        /**
-            * @brief 获取硬限制范围
-            */
-        std::pair<float, float> getHardLimits() const {
-            return m_dynamicRange.getHardLimits();
-        }
-
-        /**
-         * @brief 启用或禁用硬限制
          * @param enabled 是否启用
          */
-        void enableHardLimits(bool enabled) {
-            m_dynamicRange.enableHardLimits(enabled);
-            forceUpdateRange();
-        }
+        void setHardLimits(float min, float max, bool enabled = true);
+
+        /**
+         * @brief 获取硬限制范围
+         */
+        std::pair<float, float> getHardLimits() const;
+
+        /**
+         * @brief 启用/禁用硬限制
+         */
+        void enableHardLimits(bool enabled);
 
         /**
          * @brief 检查硬限制是否启用
          */
-        bool isHardLimitsEnabled() const {
-            return m_dynamicRange.isHardLimitsEnabled();
-        }
+        bool isHardLimitsEnabled() const;
 
+        // ==================== 数据接口 ====================
+
+        /**
+         * @brief 添加一个周期的放电数据
+         * @param cycleData 幅值数组，长度必须等于 PHASE_POINTS
+         */
+        void addCycleData(const std::vector<float> &cycleData);
+
+        /**
+         * @brief 设置相位范围
+         */
+        void setPhaseRange(float min, float max);
+
+        /**
+         * @brief 设置相位采样点数
+         */
+        void setPhasePoint(int phasePoint);
+
+        /**
+         * @brief 重置所有数据
+         */
         void resetData() {
             m_cycleBuffer.data.clear();
             m_cycleBuffer.binIndices.clear();
             m_cycleBuffer.currentIndex = 0;
             m_cycleBuffer.isFull = false;
-            m_renderBatches.clear();
-            m_dynamicRange.setDisplayRange(m_amplitudeMin, m_amplitudeMax);
-            rebuildFrequencyTable();
+            m_renderBatchMap.clear();
+            clearFrequencyTable();
+
+            float displayMin, displayMax;
+            if (m_rangeMode == RangeMode::Fixed) {
+                displayMin = m_fixedMin;
+                displayMax = m_fixedMax;
+            } else {
+                displayMin = m_configuredMin;
+                displayMax = m_configuredMax;
+                m_dynamicRange.setInitialRange(displayMin, displayMax);
+            }
+
+            updateAxisTicks(displayMin, displayMax);
             update();
-        };
-
-
-        void setPhasePoint(int phasePoint);
+        }
 
     protected:
-        // OpenGL渲染相关
-        void initializeGLObjects() override; ///< 初始化OpenGL对象
-        void paintGLObjects() override; ///< 渲染OpenGL对象
+        void initializeGLObjects() override;
+
+        void paintGLObjects() override;
 
     private:
-        // ===== 数据结构定义 =====
+        // ==================== 内部数据结构 ====================
 
-        // 渲染批次：相同频次的点一起渲染
-        struct RenderBatch {
-            std::vector<Transform2D> transforms; // 变换矩阵数组
-            int frequency; // 该批次的频次
+        struct PairHash {
+            size_t operator()(const std::pair<int, int> &p) const {
+                return std::hash<int>()(p.first) ^ (std::hash<int>()(p.second) << 1);
+            }
         };
 
-        using BinIndex = uint16_t; // 压缩后的幅值类型
+        struct RenderBatch {
+            std::unordered_map<std::pair<int, int>, Transform2D, PairHash> pointMap;
+            int frequency;
+            mutable std::vector<Transform2D> transforms;
+            mutable bool needsRebuild = true;
+
+            void rebuildTransforms(const QVector4D &color) const {
+                if (!needsRebuild)
+                    return;
+                transforms.clear();
+                transforms.reserve(pointMap.size());
+                for (const auto &[_, transform]: pointMap) {
+                    Transform2D t = transform;
+                    t.color = color;
+                    transforms.push_back(t);
+                }
+                needsRebuild = false;
+            }
+        };
+
+        using BinIndex = uint16_t;
         using FrequencyTable = std::array<std::array<int, PRPDConstants::AMPLITUDE_BINS>, PRPDConstants::PHASE_POINTS>;
 
-        // 环形缓冲区：存储原始周期数据
         struct CycleBuffer {
-            std::vector<std::vector<float> > data; // 周期数据数组
-            std::vector<std::vector<BinIndex> > binIndices; // 每个点对应的bin索引
-            int currentIndex = 0; // 当前写入位置
-            bool isFull = false; // 缓冲区是否已满
+            std::vector<std::vector<float> > data;
+            std::vector<std::vector<BinIndex> > binIndices;
+            int currentIndex = 0;
+            bool isFull = false;
         };
 
-        // ===== 数据成员 =====
-        // 数据存储
-        CycleBuffer m_cycleBuffer; // 周期数据缓冲区
-        FrequencyTable m_frequencyTable; // 频次统计表
-        std::vector<RenderBatch> m_renderBatches; // 渲染批次
-        int m_maxFrequency = 0; // 当前最大频次
+        // ==================== 成员变量 ====================
 
-        // 渲染器
-        std::unique_ptr<Point2D> m_pointRenderer; // 点渲染器
+        CycleBuffer m_cycleBuffer;
+        FrequencyTable m_frequencyTable;
+        std::unordered_map<int, RenderBatch> m_renderBatchMap;
+        int m_maxFrequency = 0;
 
-        // 坐标范围
-        float m_amplitudeMin = -75.0f; // 幅值最小值
-        float m_amplitudeMax = -30.0f; // 幅值最大值
-        float m_displayMin = -75.0f; // 显示最小值
-        float m_displayMax = -30.0f; // 显示最大值
-        float m_phaseMin = PRPDConstants::PHASE_MIN; // 相位最小值
-        float m_phaseMax = PRPDConstants::PHASE_MAX; // 相位最大值
+        std::unique_ptr<Point2D> m_pointRenderer;
 
+        float m_amplitudeMin = -75.0f;
+        float m_amplitudeMax = -30.0f;
+        float m_displayMin = -75.0f;
+        float m_displayMax = -30.0f;
+        float m_phaseMin = PRPDConstants::PHASE_MIN;
+        float m_phaseMax = PRPDConstants::PHASE_MAX;
         int m_phasePoints = PRPDConstants::PHASE_POINTS;
 
-        // 动态量程管理器
         DynamicRange m_dynamicRange{0.0f, 50.0f, DynamicRange::DynamicRangeConfig()};
-        bool m_dynamicRangeEnabled = true;
 
-        // ===== 私有方法 =====
-        // 数据处理
+        RangeMode m_rangeMode = RangeMode::Fixed;
+        float m_fixedMin = -75.0f;
+        float m_fixedMax = -30.0f;
+        float m_configuredMin = -75.0f;
+        float m_configuredMax = -30.0f;
+
+        // ==================== 私有方法 ====================
 
         void updatePointTransformsFromFrequencyTable();
 
@@ -172,7 +247,10 @@ namespace ProGraphics {
 
         void clearFrequencyTable();
 
-        // 坐标转换
+        void removePointFromBatch(int phaseIdx, BinIndex binIdx, int frequency);
+
+        void addPointToBatch(int phaseIdx, BinIndex binIdx, int frequency);
+
         float mapPhaseToGL(float phase) const;
 
         float mapAmplitudeToGL(float amplitude) const;
@@ -181,7 +259,10 @@ namespace ProGraphics {
 
         float getBinCenterAmplitude(BinIndex binIndex) const;
 
-        // 颜色计算
         QVector4D calculateColor(int frequency) const;
+
+        void forceUpdateRange();
+
+        void updateAxisTicks(float min, float max);
     };
 } // namespace ProGraphics

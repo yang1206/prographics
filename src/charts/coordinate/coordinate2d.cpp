@@ -195,9 +195,9 @@ namespace ProGraphics {
   }
 
   void Coordinate2D::paintGLObjects() {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glClearColor(m_backgroundcolor.redF(), m_backgroundcolor.greenF(), m_backgroundcolor.blueF(),
                  m_backgroundcolor.alphaF());
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_BLEND);
     m_program->bind();
     m_program->setUniformValue("projection", m_camera.getProjectionMatrix());

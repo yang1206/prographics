@@ -13,11 +13,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 
-# 收集所有源文件 - 更精确地收集文件
-file(GLOB_RECURSE EXAMPLE_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-)
 
 # 单独添加主要文件
 list(APPEND EXAMPLE_SOURCES
@@ -29,8 +24,6 @@ list(APPEND EXAMPLE_SOURCES
 # 创建可执行文件
 qt_add_executable(ProGraphicsExamples
         ${EXAMPLE_SOURCES}
-        resources/shaders.qrc
-        resources/textures.qrc
         MANUAL_FINALIZATION
 )
 
@@ -53,7 +46,7 @@ target_include_directories(ProGraphicsExamples
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/include
 )
-
+ 
 # 链接ProGraphics库
 target_link_libraries(ProGraphicsExamples
         PRIVATE
@@ -64,13 +57,13 @@ target_link_libraries(ProGraphicsExamples
 )
 
 # 设置编译选项
-if(MSVC)
+if (MSVC)
     target_compile_options(ProGraphicsExamples
             PRIVATE
             /W4
             /utf-8
     )
-endif()
+endif ()
 
 # 完成Qt设置
 qt_finalize_executable(ProGraphicsExamples)

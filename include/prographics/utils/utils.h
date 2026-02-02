@@ -81,49 +81,27 @@ namespace ProGraphics {
 
     // 优化的刻度计算函数
     inline float calculateNiceTickStep(float range, int targetTicks = 6) {
-        // 确保范围和目标刻度数有效
-        if (range <= 0 || targetTicks <= 0) {
+        if (range <= 0 || targetTicks <= 1) {
             return 1.0f;
         }
 
-        // 计算粗略的步长
-        float roughStep = range / static_cast<float>(targetTicks);
-
-        // 计算步长的数量级
+        // 关键：刻度数 = 步数 + 1，所以除以 (targetTicks - 1)
+        float roughStep = range / static_cast<float>(targetTicks - 1);
         float magnitude = std::pow(10.0f, std::floor(std::log10(roughStep)));
-
-        // 计算标准化步长（相对于数量级）
         float normalizedStep = roughStep / magnitude;
 
-        // 选择美观的步长倍数
-        // 使用更多的可能值，减少大跳跃
+        // 简化的阈值：只用 1, 2, 5, 10
         float niceStep;
-        if (normalizedStep < 1.2f) {
+        if (normalizedStep <= 1.0f) {
             niceStep = 1.0f;
-        } else if (normalizedStep < 2.5f) {
+        } else if (normalizedStep <= 2.0f) {
             niceStep = 2.0f;
-        } else if (normalizedStep < 4.0f) {
-            niceStep = 2.5f; // 添加2.5作为一个选项
-        } else if (normalizedStep < 7.0f) {
+        } else if (normalizedStep <= 5.0f) {
             niceStep = 5.0f;
         } else {
             niceStep = 10.0f;
         }
 
-        // 添加抗抽搐逻辑：
-        // 检查是否非常接近下一个级别的步长
-        // 如果非常接近（例如在边界的10%以内），选择更大的步长
-        if (normalizedStep > 0.9f && normalizedStep < 1.0f) {
-            niceStep = 1.0f; // 确保稳定在1.0
-        } else if (normalizedStep > 1.8f && normalizedStep < 2.0f) {
-            niceStep = 2.0f; // 确保稳定在2.0
-        } else if (normalizedStep > 4.5f && normalizedStep < 5.0f) {
-            niceStep = 5.0f; // 确保稳定在5.0
-        } else if (normalizedStep > 9.0f && normalizedStep < 10.0f) {
-            niceStep = 10.0f; // 确保稳定在10.0
-        }
-
-        // 最终步长
         return niceStep * magnitude;
     }
 
@@ -228,6 +206,13 @@ namespace ProGraphics {
     // 动态量程配置类
     class DynamicRange {
     private:
+        // 量程模式枚举
+        enum class RangeMode {
+            Uninitialized, // 未初始化
+            Fixed, // 固定量程（使用初始范围）
+            Dynamic // 动态量程（根据数据调整）
+        };
+
         int m_frameCounter = 0;
         // 当前显示范围
         float m_currentMin = 0.0f;
@@ -237,19 +222,19 @@ namespace ProGraphics {
         float m_targetMin = 0.0f;
         float m_targetMax = 0.0f;
 
-        // 状态标志
-        bool m_initialized = false;
-        bool m_dynamicRangeActive = false; // 动态量程是否已激活
+        // 状态管理
+        RangeMode m_mode = RangeMode::Uninitialized;
 
         // 保存初始范围
         float m_initialMin = 0.0f;
         float m_initialMax = 0.0f;
 
         // 数据平滑相关
-        std::deque<std::pair<float, float> > m_recentDataRanges; // 记录最近的数据范围
-        int m_stableRangeCounter = 0; // 稳定范围计数器
-        std::pair<float, float> m_lastSignificantRange = {0, 0}; // 上次显著更新的数据范围
-        int m_rangeLockCooldown = 0; // 范围锁定冷却时间
+        std::array<std::pair<float, float>, 10> m_recentDataRanges;
+        int m_recentDataIndex = 0;
+        int m_recentDataCount = 0;
+        float m_recentMaxSum = 0.0f;
+        int m_stableRangeCounter = 0;
 
     public:
         struct DynamicRangeConfig {
@@ -262,6 +247,8 @@ namespace ProGraphics {
             int targetTickCount = 6; // 目标刻度数量
             // ========== 范围控制 ==========
             bool enableRangeRecovery = true; // 启用范围恢复功能
+            int recoveryFrameThreshold = 20; // 恢复需要的稳定帧数
+            float recoveryRangeRatio = 0.8f; // 恢复判断的范围比例阈值
             float sameValueRangeRatio = 0.15f; // 相同值扩展比例（15%）
 
             // ========== 硬限制 ==========
@@ -288,7 +275,7 @@ namespace ProGraphics {
               m_initialMin(initialMin),
               m_initialMax(initialMax),
               m_config(config),
-              m_initialized(false) {
+              m_mode(RangeMode::Uninitialized) {
         }
 
         // 设置配置
@@ -303,127 +290,41 @@ namespace ProGraphics {
             if (newData.empty())
                 return false;
 
-            // 计算当前数据范围
             auto [minIt, maxIt] = std::minmax_element(newData.begin(), newData.end());
-            float rawDataMin = *minIt;
-            float rawDataMax = *maxIt;
+            float dataMin = *minIt;
+            float dataMax = *maxIt;
 
-            // 预处理输入数据（应用硬限制）
-            auto [dataMin, dataMax] = preprocessInputData(rawDataMin, rawDataMax);
-
-            // 记录初始显示范围用于判断变化
             float oldMin = m_currentMin;
             float oldMax = m_currentMax;
 
-            // 添加到历史数据
-            m_recentDataRanges.push_back({dataMin, dataMax});
-            if (m_recentDataRanges.size() > 10) {
-                m_recentDataRanges.pop_front();
+            if (m_recentDataCount < 10) {
+                m_recentDataRanges[m_recentDataCount] = {dataMin, dataMax};
+                m_recentMaxSum += dataMax;
+                m_recentDataCount++;
+            } else {
+                m_recentMaxSum -= m_recentDataRanges[m_recentDataIndex].second;
+                m_recentDataRanges[m_recentDataIndex] = {dataMin, dataMax};
+                m_recentMaxSum += dataMax;
+                m_recentDataIndex = (m_recentDataIndex + 1) % 10;
             }
 
-            // 首次初始化
-            if (!m_initialized) {
-                // qDebug() << "首次初始化 - 数据范围:[" << dataMin << "," << dataMax << "] 初始范围:[" << m_initialMin << "," <<
-                //         m_initialMax << "]";
+            bool needsRebuild = false;
+            switch (m_mode) {
+                case RangeMode::Uninitialized:
+                    needsRebuild = handleUninitializedMode(dataMin, dataMax);
+                    break;
 
-                // 检查数据是否在初始范围内
-                bool dataWithinInitialRange = (dataMin >= m_initialMin && dataMax <= m_initialMax);
+                case RangeMode::Fixed:
+                    needsRebuild = handleFixedMode(dataMin, dataMax);
+                    break;
 
-                if (dataWithinInitialRange) {
-                    // 数据在初始范围内，固定使用初始范围，不启动动态量程
-                    m_currentMin = m_initialMin;
-                    m_currentMax = m_initialMax;
-                    m_targetMin = m_initialMin;
-                    m_targetMax = m_initialMax;
-                    m_dynamicRangeActive = false; // 保持动态量程未激活
-                    m_initialized = true;
-                    applyHardLimitsToCurrentRange();
-                    return false; // 不需要重建，因为使用的是预设的初始范围
-                } else {
-                    // 数据突破了初始范围，启动动态量程
-                    m_dynamicRangeActive = true;
-                    initializeRange(dataMin, dataMax);
-                    m_initialized = true;
-                    applyHardLimitsToCurrentRange();
-                    return true; // 需要重建
-                }
+                case RangeMode::Dynamic:
+                    needsRebuild = handleDynamicMode(dataMin, dataMax, oldMin, oldMax);
+                    break;
             }
 
-            // 已初始化的情况下
-
-            // 如果当前未使用动态量程，检查数据是否仍在初始范围内
-            if (!m_dynamicRangeActive) {
-                bool dataWithinInitialRange = (dataMin >= m_initialMin && dataMax <= m_initialMax);
-                if (dataWithinInitialRange) {
-                    // 数据仍在初始范围内，保持固定量程
-                    return false; // 不需要任何更新
-                } else {
-                    // 数据突破了初始范围，启动动态量程
-
-                    m_dynamicRangeActive = true;
-                    initializeRange(dataMin, dataMax);
-                    applyHardLimitsToCurrentRange();
-                    return true; // 需要重建
-                }
-            }
-
-            // 动态量程已激活的情况下
-
-            // 如果启用了范围恢复功能，检查是否应该恢复到初始范围
-            if (m_config.enableRangeRecovery) {
-                bool dataWithinInitialRange = (dataMin >= m_initialMin && dataMax <= m_initialMax);
-                if (dataWithinInitialRange) {
-                    // 数据回到初始范围内，恢复到初始范围并停用动态量程
-                    // qDebug() << "数据回到初始范围，恢复固定量程";
-                    m_currentMin = m_initialMin;
-                    m_currentMax = m_initialMax;
-                    m_targetMin = m_initialMin;
-                    m_targetMax = m_initialMax;
-                    m_dynamicRangeActive = false; // 停用动态量程
-
-                    applyHardLimitsToCurrentRange();
-                    return true; // 需要重建
-                }
-            }
-
-            // 执行动态量程逻辑
-
-            // 检查数据是否超出当前范围
-            bool dataExceedsRange = (dataMin < m_currentMin || dataMax > m_currentMax);
-
-            // 超出范围时立即响应
-            if (dataExceedsRange) {
-                // qDebug() << "数据超出当前范围，扩展量程";
-                updateTargetRange(dataMin, dataMax);
-                smoothUpdateCurrentRange(calculateSmoothFactor(true, false));
-
-                applyHardLimitsToCurrentRange();
-                return true;
-            }
-
-            // 周期性检查量程是否需要收缩
-            if (++m_frameCounter % 5 != 0) {
-                return false;
-            }
-            m_frameCounter = 0;
-
-            // 检查数据使用率
-            float dataRange = dataMax - dataMin;
-            float currentRange = m_currentMax - m_currentMin;
-            float usageRatio = dataRange / currentRange;
-
-            // 数据使用率过低时收缩范围
-            if (usageRatio < 0.3f) {
-                // qDebug() << "数据使用率过低，收缩量程";
-                float avgMax = calculateAverageMax();
-                updateTargetRange(dataMin, avgMax > dataMax ? avgMax : dataMax);
-                smoothUpdateCurrentRange(calculateSmoothFactor(false, dataMax < m_currentMax * 0.5f));
-
-                applyHardLimitsToCurrentRange();
-                return isSignificantChange(oldMin, oldMax);
-            }
-
-            return false;
+            applyHardLimitsToCurrentRange();
+            return needsRebuild;
         }
 
 
@@ -453,7 +354,7 @@ namespace ProGraphics {
             m_initialMin = min;
             m_initialMax = max;
 
-            if (!m_initialized || !m_dynamicRangeActive) {
+            if (m_mode == RangeMode::Uninitialized || m_mode == RangeMode::Fixed) {
                 m_currentMin = min;
                 m_currentMax = max;
                 m_targetMin = min;
@@ -493,15 +394,15 @@ namespace ProGraphics {
 
         // 重置
         void reset() {
-            m_initialized = false;
+            m_mode = RangeMode::Uninitialized;
             m_currentMin = 0.0f;
             m_currentMax = 0.0f;
             m_targetMin = 0.0f;
             m_targetMax = 0.0f;
-            m_recentDataRanges.clear();
+            m_recentDataIndex = 0;
+            m_recentDataCount = 0;
+            m_recentMaxSum = 0.0f;
             m_stableRangeCounter = 0;
-            m_lastSignificantRange = {0, 0};
-            m_rangeLockCooldown = 0;
         }
 
         bool isDataExceedingRange(float dataMin, float dataMax) const {
@@ -517,6 +418,120 @@ namespace ProGraphics {
         }
 
     private:
+        // ===== 状态处理函数 =====
+
+        /// 处理未初始化状态
+        bool handleUninitializedMode(float dataMin, float dataMax) {
+            bool dataWithinInitialRange = isDataWithinInitialRange(dataMin, dataMax);
+
+            if (dataWithinInitialRange) {
+                // 数据在初始范围内，使用固定量程
+                m_currentMin = m_initialMin;
+                m_currentMax = m_initialMax;
+                m_targetMin = m_initialMin;
+                m_targetMax = m_initialMax;
+                m_mode = RangeMode::Fixed;
+                return false; // 不需要重建
+            } else {
+                // 数据超出初始范围，启动动态量程
+                initializeRange(dataMin, dataMax);
+                m_mode = RangeMode::Dynamic;
+                return true; // 需要重建
+            }
+        }
+
+        /// 处理固定量程模式
+        bool handleFixedMode(float dataMin, float dataMax) {
+            bool dataWithinInitialRange = isDataWithinInitialRange(dataMin, dataMax);
+
+            if (dataWithinInitialRange) {
+                // 数据仍在初始范围内，保持固定量程
+                return false;
+            } else {
+                // 数据突破初始范围，切换到动态量程
+                initializeRange(dataMin, dataMax);
+                m_mode = RangeMode::Dynamic;
+                m_stableRangeCounter = 0; // 重置恢复计数器
+                return true; // 需要重建
+            }
+        }
+
+        /// 处理动态量程模式
+        bool handleDynamicMode(float dataMin, float dataMax, float oldMin, float oldMax) {
+            // 检查是否应该恢复到固定量程
+            if (m_config.enableRangeRecovery) {
+                if (isDataWithinInitialRange(dataMin, dataMax)) {
+                    // 数据在初始范围内，增加稳定计数器
+                    m_stableRangeCounter++;
+
+                    if (m_stableRangeCounter >= m_config.recoveryFrameThreshold) {
+                        // 数据已连续稳定在初始范围内，恢复固定量程
+                        m_currentMin = m_initialMin;
+                        m_currentMax = m_initialMax;
+                        m_targetMin = m_initialMin;
+                        m_targetMax = m_initialMax;
+                        m_mode = RangeMode::Fixed;
+                        m_stableRangeCounter = 0;
+                        return true; // 需要重建
+                    }
+                } else {
+                    // 数据超出初始范围，重置计数器
+                    m_stableRangeCounter = 0;
+                }
+            }
+
+            // 执行动态量程调整逻辑
+            return performDynamicAdjustment(dataMin, dataMax, oldMin, oldMax);
+        }
+
+        /// 执行动态量程调整
+        bool performDynamicAdjustment(float dataMin, float dataMax, float oldMin, float oldMax) {
+            // 检查数据是否超出当前范围
+            bool dataExceedsRange = (dataMin < m_currentMin || dataMax > m_currentMax);
+
+            if (dataExceedsRange) {
+                // 数据超出范围，立即扩展
+                updateTargetRange(dataMin, dataMax);
+                smoothUpdateCurrentRange(calculateSmoothFactor(true, false));
+                return true; // 需要重建
+            }
+
+            // 周期性检查是否需要收缩
+            if (++m_frameCounter % 5 != 0) {
+                return false;
+            }
+            m_frameCounter = 0;
+
+            // 检查数据使用率
+            float dataRange = dataMax - dataMin;
+            float currentRange = m_currentMax - m_currentMin;
+            float usageRatio = dataRange / currentRange;
+
+            if (usageRatio < 0.3f) {
+                // 数据使用率过低，收缩范围
+                float avgMax = calculateAverageMax();
+                updateTargetRange(dataMin, avgMax > dataMax ? avgMax : dataMax);
+                smoothUpdateCurrentRange(calculateSmoothFactor(false, dataMax < m_currentMax * 0.5f));
+                return isSignificantChange(oldMin, oldMax);
+            }
+
+            return false;
+        }
+
+        /// 检查数据是否适合恢复到初始范围
+        bool isDataWithinInitialRange(float dataMin, float dataMax) const {
+            float dataRange = dataMax - dataMin;
+            float initialRange = m_initialMax - m_initialMin;
+
+            if (initialRange < 1e-6f) {
+                return true;
+            }
+
+            return dataRange <= initialRange * m_config.recoveryRangeRatio;
+        }
+
+        // ===== 原有私有方法 =====
+
         // 初始化范围
         void initializeRange(float dataMin, float dataMax) {
             if (dataMin >= m_initialMin && dataMax <= m_initialMax) {
@@ -584,42 +599,19 @@ namespace ProGraphics {
             m_currentMin = niceMin;
             m_currentMax = niceMax;
 
-            qDebug() << "正常初始化范围: 数据[" << dataMin << "," << dataMax
-                    << "] -> 显示[" << m_currentMin << "," << m_currentMax
-                    << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
+            // qDebug() << "正常初始化范围: 数据[" << dataMin << "," << dataMax
+            //         << "] -> 显示[" << m_currentMin << "," << m_currentMax
+            //         << "] (缓冲区:" << (m_currentMax - dataMax) << ")";
         }
-
-        std::pair<float, float> preprocessInputData(float dataMin, float dataMax) {
-            if (!m_config.enableHardLimits) {
-                return {dataMin, dataMax};
-            }
-
-            // 将输入数据限制在硬限制范围内
-            float clampedMin = std::max(dataMin, m_config.hardLimitMin);
-            float clampedMax = std::min(dataMax, m_config.hardLimitMax);
-
-            if (clampedMin != dataMin || clampedMax != dataMax) {
-                qDebug() << "硬限制生效: 原始[" << dataMin << "," << dataMax
-                        << "] -> 限制[" << clampedMin << "," << clampedMax << "]";
-            }
-
-            return {clampedMin, clampedMax};
-        }
-
 
         void applyHardLimitsToCurrentRange() {
             if (!m_config.enableHardLimits) return;
 
-            float oldMin = m_currentMin, oldMax = m_currentMax;
+
             m_currentMin = std::max(m_currentMin, m_config.hardLimitMin);
             m_currentMax = std::min(m_currentMax, m_config.hardLimitMax);
             m_targetMin = std::max(m_targetMin, m_config.hardLimitMin);
             m_targetMax = std::min(m_targetMax, m_config.hardLimitMax);
-
-            if (oldMin != m_currentMin || oldMax != m_currentMax) {
-                qDebug() << "显示范围被硬限制: [" << oldMin << "," << oldMax
-                        << "] -> [" << m_currentMin << "," << m_currentMax << "]";
-            }
         }
 
         // 更新目标范围
@@ -663,7 +655,7 @@ namespace ProGraphics {
                 true, dataMax, m_config.bufferRatio);
 
             // 避免抽搐：如果目标范围与当前目标范围非常接近，保持不变
-            if (m_initialized) {
+            if (m_mode != RangeMode::Uninitialized) {
                 float currentRange = m_targetMax - m_targetMin;
                 float minChange = std::abs(niceMin - m_targetMin) / currentRange;
                 float maxChange = std::abs(niceMax - m_targetMax) / currentRange;
@@ -676,35 +668,21 @@ namespace ProGraphics {
             m_targetMin = niceMin;
             m_targetMax = niceMax;
 
-            qDebug() << "正常更新目标范围: 数据[" << dataMin << "," << dataMax
-                    << "] -> 目标[" << m_targetMin << "," << m_targetMax << "]";
+            // qDebug() << "正常更新目标范围: 数据[" << dataMin << "," << dataMax
+            //         << "] -> 目标[" << m_targetMin << "," << m_targetMax << "]";
         }
 
         // 平滑更新当前范围，接受平滑因子参数
         void smoothUpdateCurrentRange(float smoothFactor = -1.0f) {
-            // 如果未指定平滑因子，使用responseSpeed计算
             if (smoothFactor < 0.0f) {
-                // 根据是扩大还是缩小选择不同的平滑因子
                 bool isExpanding = (m_targetMax > m_currentMax) || (m_targetMin < m_currentMin);
                 smoothFactor = calculateSmoothFactor(isExpanding, false);
             }
 
-            // 限制平滑因子，避免过快变化
             smoothFactor = std::min(smoothFactor, 0.5f);
 
-            // 使用平滑系数更新当前范围
             m_currentMin += (m_targetMin - m_currentMin) * smoothFactor;
             m_currentMax += (m_targetMax - m_currentMax) * smoothFactor;
-
-            // 确保当前范围仍是美观范围，移除enforcePositiveRange参数
-            auto [niceMin, niceMax] = calculateNiceRange(
-                m_currentMin, m_currentMax, m_config.targetTickCount);
-            m_currentMin = niceMin;
-            m_currentMax = niceMax;
-
-            // 输出调试信息
-            // qDebug() << "平滑更新: 当前[" << m_currentMin << "," << m_currentMax
-            //         << "] (平滑因子:" << smoothFactor << ")";
         }
 
         // 判断范围是否发生显著变化
@@ -737,41 +715,11 @@ namespace ProGraphics {
             return changed;
         }
 
-        // 计算最近数据的平均最大值
         float calculateAverageMax() {
-            if (m_recentDataRanges.empty()) {
+            if (m_recentDataCount == 0) {
                 return 0.0f;
             }
-
-            float sum = 0.0f;
-            for (const auto &range: m_recentDataRanges) {
-                sum += range.second;
-            }
-
-            return sum / m_recentDataRanges.size();
-        }
-
-        // 查找最近n帧的最大值
-        float findRecentMaxValue(int n) {
-            if (m_recentDataRanges.empty()) {
-                return 0.0f;
-            }
-
-            float maxValue = 0.0f;
-            int count = std::min(n, static_cast<int>(m_recentDataRanges.size()));
-
-            for (int i = 0; i < count; i++) {
-                size_t idx = m_recentDataRanges.size() - 1 - i;
-                maxValue = std::max(maxValue, m_recentDataRanges[idx].second);
-            }
-
-            return maxValue;
-        }
-
-        // 检查两个范围是否基本相等
-        bool isRangeEqual(float min1, float min2, float max1, float max2) {
-            const float EPSILON = 0.001f;
-            return std::abs(min1 - min2) < EPSILON && std::abs(max1 - max2) < EPSILON;
+            return m_recentMaxSum / m_recentDataCount;
         }
 
         // 计算平滑因子

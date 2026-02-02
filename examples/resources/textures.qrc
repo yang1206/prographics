@@ -1,7 +1,0 @@
-<RCC>
-    <qresource prefix="/textures">
-        <file>../assets/textures/awesomeface.png</file>
-        <file>../assets/textures/wall.jpg</file>
-        <file>../assets/textures/OIP.jpg</file>
-    </qresource>
-</RCC>

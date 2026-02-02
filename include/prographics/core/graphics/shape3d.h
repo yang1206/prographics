@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <QMatrix4x4>
 #include <QOpenGLBuffer>
 #include <QOpenGLFunctions>
@@ -190,7 +190,7 @@ namespace ProGraphics {
    * @param segments 细分段数
    * @return 顶点数据数组
    */
-        virtual std::vector<float> generateVertices(int segments) { return {}; }
+        virtual std::vector<float> generateVertices([[maybe_unused]] int segments) { return {}; }
 
         /**
    * @brief 顶点数据结构
