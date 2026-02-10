@@ -216,7 +216,6 @@ namespace ProGraphics {
 
     m_program->release();
 
-    // QPainter 渲染文本
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     if (m_nameSystem) {
@@ -226,7 +225,6 @@ namespace ProGraphics {
     if (m_tickSystem) {
       m_tickSystem->render(painter, model, projection, width(), height());
     }
-
     painter.end();
   }
 
@@ -594,5 +592,62 @@ namespace ProGraphics {
     }
 
     m_tickSystem->setConfig(tickConfig);
+  }
+
+  QPointF Coordinate2D::worldToScreen(const QVector3D &worldPos) const {
+    QMatrix4x4 mvp = m_camera.getProjectionMatrix() * m_camera.getViewMatrix();
+    QVector4D clipPos = mvp * QVector4D(worldPos, 1.0f);
+
+    if (qFuzzyIsNull(clipPos.w())) {
+      return QPointF(0, 0);
+    }
+
+    QVector3D ndcPos = clipPos.toVector3D() / clipPos.w();
+
+    float screenX = (ndcPos.x() + 1.0f) * 0.5f * width();
+    float screenY = (1.0f - ndcPos.y()) * 0.5f * height();
+
+    return QPointF(screenX, screenY);
+  }
+
+  QVector3D Coordinate2D::screenToWorld(const QPointF &screenPos, float worldZ) const {
+    float ndcX = (2.0f * screenPos.x()) / width() - 1.0f;
+    float ndcY = 1.0f - (2.0f * screenPos.y()) / height();
+
+    QMatrix4x4 mvp = m_camera.getProjectionMatrix() * m_camera.getViewMatrix();
+    QMatrix4x4 invMVP = mvp.inverted();
+
+    QVector4D nearPoint = invMVP * QVector4D(ndcX, ndcY, -1.0f, 1.0f);
+    QVector4D farPoint = invMVP * QVector4D(ndcX, ndcY, 1.0f, 1.0f);
+
+    if (qFuzzyIsNull(nearPoint.w()) || qFuzzyIsNull(farPoint.w())) {
+      return QVector3D(0, 0, 0);
+    }
+
+    QVector3D near = nearPoint.toVector3D() / nearPoint.w();
+    QVector3D far = farPoint.toVector3D() / farPoint.w();
+
+    if (qFuzzyCompare(far.z(), near.z())) {
+      return QVector3D(near.x(), near.y(), worldZ);
+    }
+
+    float t = (worldZ - near.z()) / (far.z() - near.z());
+    t = qBound(0.0f, t, 1.0f);
+
+    return near + t * (far - near);
+  }
+
+  QRectF Coordinate2D::getDataViewport() const {
+    QVector3D bottomLeft(0, 0, 0);
+    QVector3D topRight(m_config.size, m_config.size, 0);
+
+    QPointF screenBottomLeft = worldToScreen(bottomLeft);
+    QPointF screenTopRight = worldToScreen(topRight);
+
+    return QRectF(screenBottomLeft, screenTopRight).normalized();
+  }
+
+  std::tuple<float, float, float, float> Coordinate2D::getDataBounds() const {
+    return {0.0f, m_config.size, 0.0f, m_config.size};
   }
 } // namespace ProGraphics

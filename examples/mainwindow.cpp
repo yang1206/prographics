@@ -240,6 +240,21 @@ void MainWindow::setupUI() {
     // 图表区域
     m_prpsChart = new ProGraphics::PRPSChart(central);
     m_prpdChart = new ProGraphics::PRPDChart(central);
+    m_prpdChart->enableSelectionBox(true);
+
+    connect(m_prpdChart, &ProGraphics::PRPDChart::regionSelected, this,
+            [](const QRectF &rect, const std::vector<ProGraphics::PRPDChart::PointInfo> &points) {
+                qDebug() << "=== Region Selected ===";
+                qDebug() << "Phase:" << rect.left() << "-" << rect.right() << "°";
+                qDebug() << "Amplitude:" << rect.bottom() << "-" << rect.top() << "dBm";
+                qDebug() << "Total points:" << points.size();
+
+                int totalFreq = 0;
+                for (const auto &p : points) {
+                    totalFreq += p.frequency;
+                }
+                qDebug() << "Total frequency:" << totalFreq;
+            });
 
     QSplitter *chartSplitter = new QSplitter(Qt::Vertical);
     chartSplitter->addWidget(m_prpsChart);

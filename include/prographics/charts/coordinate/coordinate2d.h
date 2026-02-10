@@ -419,6 +419,33 @@ namespace ProGraphics {
       return m_camera;
     }
 
+    /**
+     * @brief 世界坐标转屏幕坐标
+     * @param worldPos 世界坐标（OpenGL坐标系）
+     * @return 屏幕坐标（像素坐标，左上角为原点）
+     */
+    QPointF worldToScreen(const QVector3D& worldPos) const;
+
+    /**
+     * @brief 屏幕坐标转世界坐标
+     * @param screenPos 屏幕坐标（像素坐标，左上角为原点）
+     * @param worldZ 世界坐标的Z值（默认为0，即XY平面）
+     * @return 世界坐标（OpenGL坐标系）
+     */
+    QVector3D screenToWorld(const QPointF& screenPos, float worldZ = 0.0f) const;
+
+    /**
+     * @brief 获取数据区域在屏幕上的矩形
+     * @return 数据区域的屏幕矩形（像素坐标）
+     */
+    QRectF getDataViewport() const;
+
+    /**
+     * @brief 获取数据区域的世界坐标边界
+     * @return {minX, maxX, minY, maxY}
+     */
+    std::tuple<float, float, float, float> getDataBounds() const;
+
   protected:
     /**
      * @brief 初始化OpenGL对象

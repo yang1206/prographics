@@ -23,7 +23,7 @@ namespace ProGraphics {
      * 用于显示局部放电信号的相位-幅值-频次三维分布关系。
      * 支持三种量程模式：固定、自动、自适应。
      */
-    class PRPDChart : public Coordinate2D {
+    class PROGRAPHICS_EXPORT PRPDChart : public Coordinate2D {
         Q_OBJECT
 
     public:
@@ -36,10 +36,34 @@ namespace ProGraphics {
             Adaptive ///< 自适应模式 - 在初始范围基础上智能调整
         };
 
+        struct PointInfo {
+            float phase;
+            float amplitude;
+            int frequency;
+            int phaseIndex;
+            int binIndex;
+        };
+
         explicit PRPDChart(QWidget *parent = nullptr);
 
         ~PRPDChart() override;
 
+        void clearSelection();
+
+        bool hasSelection() const { return m_hasSelection; }
+
+        void enableSelectionBox(bool enabled);
+
+        bool isSelectionBoxEnabled() const { return m_selectionBoxEnabled; }
+
+        void setSelectionBox(const QRectF &dataRect);
+
+        QRectF getSelectionBox() const;
+
+    signals:
+        void regionSelected(const QRectF &dataRect, const std::vector<PointInfo> &points);
+
+    public:
         // ==================== 量程设置 API ====================
 
         /**
@@ -175,7 +199,28 @@ namespace ProGraphics {
 
         void paintGLObjects() override;
 
+        void paintGL() override;
+
+        void mousePressEvent(QMouseEvent *event) override;
+
+        void mouseMoveEvent(QMouseEvent *event) override;
+
+        void mouseReleaseEvent(QMouseEvent *event) override;
+
+        void paintEvent(QPaintEvent *event) override;
+
+        void keyPressEvent(QKeyEvent *event) override;
+
     private:
+        enum class HandleType {
+            None,
+            TopLeft,
+            TopRight,
+            BottomLeft,
+            BottomRight,
+            Body
+        };
+
         // ==================== 内部数据结构 ====================
 
         struct PairHash {
@@ -239,6 +284,17 @@ namespace ProGraphics {
         float m_configuredMin = -75.0f;
         float m_configuredMax = -30.0f;
 
+        bool m_hasSelection = false;
+        QRectF m_selectionDataRect;
+
+        bool m_selectionBoxEnabled = false;
+        bool m_isDraggingHandle = false;
+        HandleType m_activeHandle = HandleType::None;
+        QPointF m_dragStartPos;
+        QRectF m_dragStartRect;
+
+        static constexpr float MIN_SELECTION_SIZE = 5.0f;
+
         // ==================== 私有方法 ====================
 
         void updatePointTransformsFromFrequencyTable();
@@ -264,5 +320,21 @@ namespace ProGraphics {
         void forceUpdateRange();
 
         void updateAxisTicks(float min, float max);
+
+        std::pair<float, float> screenToData(const QPoint &screenPos);
+
+        std::tuple<bool, float, float, int> findPointAt(const QPoint &screenPos);
+
+        std::vector<PointInfo> getPointsInRegion(const QRectF &dataRect);
+
+        void updateSelection();
+
+        QRectF dataRectToScreen(const QRectF &dataRect) const;
+
+        QRectF clampToDataBounds(const QRectF &rect) const;
+
+        HandleType hitTestHandle(const QPointF &screenPos, const QRectF &screenRect) const;
+
+        void updateCursor(HandleType handle);
     };
 } // namespace ProGraphics
