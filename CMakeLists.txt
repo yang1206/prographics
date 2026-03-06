@@ -10,6 +10,7 @@ project(ProGraphics
 # 设置CMake选项
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
+option(PROGRAPHICS_INSTALL "Install ProGraphics targets" ${PROJECT_IS_TOP_LEVEL})
 
 # 设置CMake变量
 set(CMAKE_CXX_STANDARD 17)
@@ -50,12 +51,12 @@ set(MOC_IMPLEMENTATION_DIR "${CMAKE_CURRENT_BINARY_DIR}/moc_impl")
 file(MAKE_DIRECTORY ${MOC_IMPLEMENTATION_DIR})
 
 set(MOC_SOURCES)
-foreach(HEADER_PATH ${WRAPPED_HEADER_FILES})
+foreach (HEADER_PATH ${WRAPPED_HEADER_FILES})
     get_filename_component(HEADER_NAME ${HEADER_PATH} NAME_WE)
     set(IMPL_FILE "${MOC_IMPLEMENTATION_DIR}/${HEADER_NAME}_moc_impl.cpp")
     file(WRITE ${IMPL_FILE} "#include \"${HEADER_PATH}\"\n")
     list(APPEND MOC_SOURCES ${IMPL_FILE})
-endforeach()
+endforeach ()
 
 # 添加到源文件列表
 list(APPEND PROGRAPHICS_SOURCES ${MOC_SOURCES})
@@ -72,11 +73,11 @@ if (BUILD_SHARED_LIBS)
             PUBLIC
             QT_SHARED
     )
-    if(MSVC)
+    if (MSVC)
         set_target_properties(ProGraphics PROPERTIES
                 WINDOWS_EXPORT_ALL_SYMBOLS ON
         )
-    endif()
+    endif ()
 else ()
     add_library(ProGraphics STATIC ${PROGRAPHICS_SOURCES} ${PROGRAPHICS_HEADERS})
 endif ()
@@ -108,11 +109,13 @@ target_include_directories(ProGraphics
         ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-install(
-        FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/include/prographics/prographics_export.h
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/prographics
-)
+if (PROGRAPHICS_INSTALL)
+    install(
+            FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/include/prographics/prographics_export.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/prographics
+    )
+endif ()
 
 # 设置编译选项
 target_compile_features(ProGraphics PUBLIC cxx_std_20)
@@ -159,54 +162,56 @@ elseif (UNIX AND NOT APPLE)
 endif ()
 
 # 安装配置
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
+if (PROGRAPHICS_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
 
-# 安装头文件
-install(
-        DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/prographics
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+    # 安装头文件
+    install(
+            DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/prographics
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 
-# 安装库文件
-install(
-        TARGETS ProGraphics
-        EXPORT ProGraphicsTargets
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+    # 安装库文件
+    install(
+            TARGETS ProGraphics
+            EXPORT ProGraphicsTargets
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 
-# 导出目标
-install(
-        EXPORT ProGraphicsTargets
-        FILE ProGraphicsTargets.cmake
-        NAMESPACE ProGraphics::
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ProGraphics
-)
+    # 导出目标
+    install(
+            EXPORT ProGraphicsTargets
+            FILE ProGraphicsTargets.cmake
+            NAMESPACE ProGraphics::
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ProGraphics
+    )
 
-# 生成版本文件
-write_basic_package_version_file(
-        "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfigVersion.cmake"
-        VERSION ${PROJECT_VERSION}
-        COMPATIBILITY SameMajorVersion
-)
+    # 生成版本文件
+    write_basic_package_version_file(
+            "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfigVersion.cmake"
+            VERSION ${PROJECT_VERSION}
+            COMPATIBILITY SameMajorVersion
+    )
 
-# 配置Config文件
-configure_package_config_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProGraphicsConfig.cmake.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfig.cmake"
-        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ProGraphics
-)
+    # 配置Config文件
+    configure_package_config_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProGraphicsConfig.cmake.in"
+            "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfig.cmake"
+            INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ProGraphics
+    )
 
-# 安装配置文件
-install(
-        FILES
-        "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfigVersion.cmake"
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ProGraphics
-)
+    # 安装配置文件
+    install(
+            FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfig.cmake"
+            "${CMAKE_CURRENT_BINARY_DIR}/ProGraphicsConfigVersion.cmake"
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ProGraphics
+    )
+endif ()
 
 # 构建示例
 if (PROGRAPHICS_BUILD_EXAMPLES)
