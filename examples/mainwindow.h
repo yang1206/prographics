@@ -74,6 +74,13 @@ private:
     QTimer *m_statusTimer;
     QTimer *m_batchTimer;
     int m_batchRemaining;
+
+    // 全局暂停控制
+    QPushButton *m_globalPauseButton;
+    QLabel *m_globalPauseStatusLabel;
+
+private slots:
+    void onGlobalPauseClicked();
 };
 
 #endif

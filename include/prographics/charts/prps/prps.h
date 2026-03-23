@@ -200,6 +200,52 @@ class PRPSChart : public Coordinate3D {
         update();
     }
 
+    /**
+     * @brief 暂停动画更新
+     * 
+     * 暂停后：
+     * - 停止滚动动画，现有数据不会被移出
+     * - 如果不禁止添加新数据，新数据仍会添加到末尾
+     * - 图表保持当前显示内容不变
+     * 
+     * @param blockNewData 是否禁止添加新数据
+     */
+    void pause(bool blockNewData = true);
+
+    /**
+     * @brief 恢复动画更新
+     * 
+     * 恢复后：
+     * - 继续滚动动画，旧数据会逐步移出
+     * - 恢复接受新数据
+     */
+    void resume();
+
+    /**
+     * @brief 检查当前是否已暂停
+     * @return true 如果已暂停
+     */
+    bool isPaused() const { return m_paused; }
+
+    /**
+     * @brief 切换暂停/恢复状态
+     */
+    void togglePause();
+
+    /**
+     * @brief 设置是否接受新数据
+     * 
+     * 即使动画暂停，也可以控制是否接受新数据
+     * @param enabled true 接受新数据，false 不接受
+     */
+    void setAcceptData(bool enabled) { m_acceptData = enabled; }
+
+    /**
+     * @brief 检查是否正在接受新数据
+     * @return true 如果接受新数据
+     */
+    bool isAcceptingData() const { return m_acceptData; }
+
   protected:
     void initializeGLObjects() override;
     void paintGLObjects() override;
@@ -237,6 +283,9 @@ class PRPSChart : public Coordinate3D {
     float m_phaseMin    = PRPSConstants::PHASE_MIN;
     float m_phaseMax    = PRPSConstants::PHASE_MAX;
     int   m_phasePoints = PRPSConstants::PHASE_POINTS;
+
+    bool  m_paused      = false;      ///< 是否暂停动画
+    bool  m_acceptData  = true;       ///< 是否接受新数据
 
     // ==================== 私有方法 ====================
 

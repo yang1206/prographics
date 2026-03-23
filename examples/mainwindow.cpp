@@ -77,6 +77,21 @@ void MainWindow::setupUI() {
     connect(gen50Button, &QPushButton::clicked, this, [this]() { onGenerateBatch(50); });
     connect(gen100Button, &QPushButton::clicked, this, [this]() { onGenerateBatch(100); });
 
+    // ==================== 全局暂停控制 ====================
+    QGroupBox *pauseControlGroup = new QGroupBox("暂停控制");
+    QVBoxLayout *pauseControlLayout = new QVBoxLayout(pauseControlGroup);
+
+    m_globalPauseButton = new QPushButton("全部暂停");
+    m_globalPauseStatusLabel = new QLabel();
+    m_globalPauseStatusLabel->setWordWrap(true);
+    m_globalPauseStatusLabel->setStyleSheet("QLabel { color: #666; font-size: 11px; }");
+    m_globalPauseStatusLabel->setText("当前状态：运行中\nPRPS: 滚动更新\nPRPD: 统计累积\n新数据正常接收");
+
+    pauseControlLayout->addWidget(m_globalPauseButton);
+    pauseControlLayout->addWidget(m_globalPauseStatusLabel);
+
+    connect(m_globalPauseButton, &QPushButton::clicked, this, &MainWindow::onGlobalPauseClicked);
+
     // ==================== 量程模式 ====================
     QGroupBox *modeGroup = new QGroupBox("量程模式");
     QVBoxLayout *modeLayout = new QVBoxLayout(modeGroup);
@@ -226,6 +241,7 @@ void MainWindow::setupUI() {
 
     // 组装控制面板
     controlLayout->addWidget(dataGroup);
+    controlLayout->addWidget(pauseControlGroup);
     controlLayout->addWidget(modeGroup);
     controlLayout->addWidget(rangeGroup);
     controlLayout->addWidget(m_dynamicConfigWidget);
@@ -395,6 +411,25 @@ std::vector<float> MainWindow::generateRandomData() {
     }
 
     return randomData;
+}
+
+void MainWindow::onGlobalPauseClicked() {
+    // 两个图表同步状态，以 PRPS 的状态为准
+    bool newPausedState = !m_prpsChart->isPaused();
+    
+    if (newPausedState) {
+        // 暂停 - 默认禁止接收数据 (blockNewData = true)
+        m_prpsChart->pause(true);
+        m_prpdChart->pause(true);
+        m_globalPauseButton->setText("全部继续");
+        m_globalPauseStatusLabel->setText("当前状态：已暂停\nPRPS: 滚动停止\nPRPD: 统计冻结\n新数据被丢弃，画面完全保持不变");
+    } else {
+        // 恢复
+        m_prpsChart->resume();
+        m_prpdChart->resume();
+        m_globalPauseButton->setText("全部暂停");
+        m_globalPauseStatusLabel->setText("当前状态：运行中\nPRPS: 滚动更新\nPRPD: 统计累积\n新数据正常接收");
+    }
 }
 
 void MainWindow::onTestDialog() {

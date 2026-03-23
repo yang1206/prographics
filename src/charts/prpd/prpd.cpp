@@ -66,6 +66,9 @@ void PRPDChart::paintGLObjects() {
 }
 
 void PRPDChart::addCycleData(const std::vector<float>& cycleData) {
+    if (!m_acceptData) {
+        return;
+    }
     if (cycleData.size() != m_phasePoints) {
         qWarning() << "Invalid cycle data size:" << cycleData.size() << "expected:" << m_phasePoints;
         return;
@@ -456,6 +459,26 @@ float PRPDChart::getBinCenterAmplitude(BinIndex binIndex) const {
 
 void PRPDChart::setPhasePoint(int phasePoint) {
     m_phasePoints = phasePoint;
+}
+
+// ==================== 暂停/恢复 API 实现 ====================
+
+void PRPDChart::pause(bool blockNewData) {
+    m_paused = true;
+    m_acceptData = !blockNewData;
+}
+
+void PRPDChart::resume() {
+    m_paused = false;
+    m_acceptData = true;
+}
+
+void PRPDChart::togglePause() {
+    if (m_paused) {
+        resume();
+    } else {
+        pause();
+    }
 }
 
 } // namespace ProGraphics

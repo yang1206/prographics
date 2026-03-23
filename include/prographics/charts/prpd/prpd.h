@@ -170,6 +170,52 @@ namespace ProGraphics {
             update();
         }
 
+        /**
+         * @brief 暂停数据更新
+         * 
+         * 暂停后：
+         * - 不再接受新数据
+         * - 当前统计分布完全冻结不变
+         * - 不会覆盖老数据，保持所有当前统计信息
+         * 
+         * @param blockNewData 是否禁止添加新数据
+         */
+        void pause(bool blockNewData = true);
+
+        /**
+         * @brief 恢复数据更新
+         * 
+         * 恢复后：
+         * - 继续接受新数据
+         * - 继续累积统计和覆盖老数据
+         */
+        void resume();
+
+        /**
+         * @brief 检查当前是否已暂停
+         * @return true 如果已暂停
+         */
+        bool isPaused() const { return m_paused; }
+
+        /**
+         * @brief 切换暂停/恢复状态
+         */
+        void togglePause();
+
+        /**
+         * @brief 设置是否接受新数据
+         * 
+         * 即使暂停，也可以控制是否接受新数据
+         * @param enabled true 接受新数据，false 不接受
+         */
+        void setAcceptData(bool enabled) { m_acceptData = enabled; }
+
+        /**
+         * @brief 检查是否正在接受新数据
+         * @return true 如果接受新数据
+         */
+        bool isAcceptingData() const { return m_acceptData; }
+
     protected:
         void initializeGLObjects() override;
 
@@ -238,6 +284,9 @@ namespace ProGraphics {
         float m_fixedMax = -30.0f;
         float m_configuredMin = -75.0f;
         float m_configuredMax = -30.0f;
+
+        bool m_paused = false;      ///< 是否暂停数据更新
+        bool m_acceptData = true;  ///< 是否接受新数据
 
         // ==================== 私有方法 ====================
 

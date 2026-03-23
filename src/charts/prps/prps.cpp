@@ -114,6 +114,10 @@ void PRPSChart::paintGLObjects() {
 }
 
 void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
+    if (!m_acceptData) {
+        return;
+    }
+    
     if (cycleData.size() != m_phasePoints) {
         qWarning() << "Invalid cycle data size:" << cycleData.size() << "expected:" << m_phasePoints;
         return;
@@ -435,6 +439,28 @@ void PRPSChart::recalculateLineGroups() {
 
     doneCurrent();
     update();
+}
+
+// ==================== 暂停/恢复 API 实现 ====================
+
+void PRPSChart::pause(bool blockNewData) {
+    m_paused = true;
+    m_updateThread.setPaused(true);
+    m_acceptData = !blockNewData;
+}
+
+void PRPSChart::resume() {
+    m_paused = false;
+    m_updateThread.setPaused(false);
+    m_acceptData = true;
+}
+
+void PRPSChart::togglePause() {
+    if (m_paused) {
+        resume();
+    } else {
+        pause();
+    }
 }
 
 } // namespace ProGraphics
