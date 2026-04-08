@@ -189,16 +189,9 @@ class PRPSChart : public Coordinate3D {
     void setUpdateInterval(int intervalMs) { m_updateThread.setUpdateInterval(intervalMs); }
 
     /**
-     * @brief 重置所有数据
+     * @brief 重置所有数据（含 PRPS 线图元；需在 OpenGL 上下文中销毁 GPU 资源）
      */
-    void resetData() {
-        m_currentCycles.clear();
-        m_threshold = 0.1f;
-        if (m_rangeMode != RangeMode::Fixed) {
-            m_dynamicRange.reset();
-        }
-        update();
-    }
+    void resetData();
 
     /**
      * @brief 暂停动画更新
@@ -259,6 +252,7 @@ class PRPSChart : public Coordinate3D {
     struct LineGroup {
         float                    zPosition = PRPSConstants::MAX_Z_POSITION;
         bool                     isActive  = true;
+        bool                     instanceBufferDirty = true;
         std::vector<float>       amplitudes;
         std::vector<Transform2D> transforms;
         std::unique_ptr<Line2D>  instancedLine;

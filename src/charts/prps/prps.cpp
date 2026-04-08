@@ -80,6 +80,30 @@ PRPSChart::~PRPSChart() {
     doneCurrent();
 }
 
+void PRPSChart::resetData() {
+    makeCurrent();
+    m_lineGroups.clear();
+    doneCurrent();
+
+    m_currentCycles.clear();
+    m_threshold = 0.1f;
+
+    float displayMin;
+    float displayMax;
+    if (m_rangeMode == RangeMode::Fixed) {
+        displayMin = m_fixedMin;
+        displayMax = m_fixedMax;
+    } else {
+        displayMin = m_configuredMin;
+        displayMax = m_configuredMax;
+        m_dynamicRange.reset();
+        m_dynamicRange.setInitialRange(displayMin, displayMax);
+    }
+
+    updateAxisTicks(displayMin, displayMax);
+    update();
+}
+
 void PRPSChart::initializeGLObjects() {
     Coordinate3D::initializeGLObjects();
 }
@@ -91,7 +115,6 @@ void PRPSChart::paintGLObjects() {
         return;
     }
 
-    glEnable(GL_LINE_SMOOTH);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glLineWidth(2.0f);
@@ -101,16 +124,21 @@ void PRPSChart::paintGLObjects() {
             QMatrix4x4 model;
             model.translate(0, 0, group->zPosition);
 
+            const float alphaRep =
+                (group->zPosition < 2.0f) ? (group->zPosition / 2.0f) : -1.0f;
+
             group->instancedLine->drawInstanced(
                 camera().getProjectionMatrix(),
                 camera().getViewMatrix() * model,
-                group->transforms);
+                group->transforms,
+                alphaRep,
+                group->instanceBufferDirty);
+            group->instanceBufferDirty = false;
         }
     }
 
     glLineWidth(1.0f);
     glDisable(GL_BLEND);
-    glDisable(GL_LINE_SMOOTH);
 }
 
 void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
@@ -196,13 +224,6 @@ void PRPSChart::updatePRPSAnimation() {
 
     for (auto& group : m_lineGroups) {
         group->zPosition -= m_prpsAnimationSpeed;
-
-        if (group->zPosition < 2.0f) {
-            float alpha = group->zPosition / 2.0f;
-            for (auto& transform : group->transforms) {
-                transform.color.setW(alpha);
-            }
-        }
 
         if (group->zPosition <= PRPSConstants::MIN_Z_POSITION) {
             group->isActive = false;
@@ -435,6 +456,8 @@ void PRPSChart::recalculateLineGroups() {
 
             group->transforms.push_back(transform);
         }
+
+        group->instanceBufferDirty = true;
     }
 
     doneCurrent();
