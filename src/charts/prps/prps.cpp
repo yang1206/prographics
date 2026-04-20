@@ -1,4 +1,5 @@
 #include "prographics/charts/prps/prps.h"
+#include <algorithm>
 #include <random>
 #include "prographics/utils/utils.h"
 
@@ -176,6 +177,64 @@ void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
     m_currentCycles.clear();
 }
 
+void PRPSChart::setDisplayLineCount(int count) {
+    m_displayLineCount = count;
+    recalculateLineGroups();
+}
+
+void PRPSChart::buildLineTransformsFromCycle(const std::vector<float>& cycleData,
+                                             std::vector<Transform2D>& out) const {
+    out.clear();
+    const int N = static_cast<int>(cycleData.size());
+    if (N == 0 || N != m_phasePoints) {
+        return;
+    }
+
+    const float span = m_phaseMax - m_phaseMin;
+    const int   B    = m_displayLineCount;
+
+    auto pushLine = [&](float phase, float amplitudeSample) {
+        const float glX = mapPhaseToGL(phase);
+        const float glY = mapAmplitudeToGL(amplitudeSample);
+        if (glY <= 0.0f) {
+            return;
+        }
+        Transform2D transform;
+        transform.position = QVector2D(glX, 0.0f);
+        transform.scale    = QVector2D(1.0f, glY);
+        const float intensity = glY / PRPSConstants::GL_AXIS_LENGTH;
+        transform.color       = calculateColor(intensity);
+        out.push_back(transform);
+    };
+
+    if (B <= 0 || B >= N) {
+        if (N == 1) {
+            const float phase = 0.5f * (m_phaseMin + m_phaseMax);
+            pushLine(phase, cycleData[0]);
+            return;
+        }
+        for (int i = 0; i < N; ++i) {
+            const float phase = static_cast<float>(i) / static_cast<float>(N - 1) * m_phaseMax;
+            pushLine(phase, cycleData[i]);
+        }
+        return;
+    }
+
+    for (int b = 0; b < B; ++b) {
+        const int i0 = b * N / B;
+        const int i1 = (b + 1) * N / B;
+        if (i0 >= i1) {
+            continue;
+        }
+        float peak = cycleData[static_cast<size_t>(i0)];
+        for (int i = i0 + 1; i < i1; ++i) {
+            peak = std::max(peak, cycleData[static_cast<size_t>(i)]);
+        }
+        const float phase = m_phaseMin + (static_cast<float>(b) + 0.5f) * span / static_cast<float>(B);
+        pushLine(phase, peak);
+    }
+}
+
 void PRPSChart::processCurrentCycles() {
     makeCurrent();
 
@@ -183,36 +242,15 @@ void PRPSChart::processCurrentCycles() {
     const auto& cycleData = m_currentCycles.front();
     newGroup->amplitudes  = cycleData;
 
-    int validCount = 0;
-    for (int i = 0; i < m_phasePoints; ++i) {
-        float glY = mapAmplitudeToGL(cycleData[i]);
-        if (glY > 0.0f)
-            validCount++;
-    }
-
     newGroup->instancedLine = std::make_unique<Line2D>(
         QVector3D(0.0f, 0.0f, 0.0f),
         QVector3D(0.0f, 1.0f, 0.0f),
         QVector4D(1.0f, 1.0f, 1.0f, 1.0f));
 
-    newGroup->transforms.reserve(validCount);
+    const int cap = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints) ? m_displayLineCount : m_phasePoints;
+    newGroup->transforms.reserve(static_cast<size_t>(cap));
 
-    for (int i = 0; i < m_phasePoints; ++i) {
-        float phase = (float) i / (m_phasePoints - 1) * m_phaseMax;
-        float glX   = mapPhaseToGL(phase);
-        float glY   = mapAmplitudeToGL(cycleData[i]);
-        if (glY <= 0.0f)
-            continue;
-
-        Transform2D transform;
-        transform.position = QVector2D(glX, 0.0f);
-        transform.scale    = QVector2D(1.0f, glY);
-
-        float intensity = glY / PRPSConstants::GL_AXIS_LENGTH;
-        transform.color = calculateColor(intensity);
-
-        newGroup->transforms.push_back(transform);
-    }
+    buildLineTransformsFromCycle(cycleData, newGroup->transforms);
 
     newGroup->instancedLine->initialize();
     m_lineGroups.push_back(std::move(newGroup));
@@ -430,33 +468,12 @@ float PRPSChart::mapGLToAmplitude(float glY) const {
 void PRPSChart::recalculateLineGroups() {
     makeCurrent();
 
+    const int cap = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints) ? m_displayLineCount : m_phasePoints;
+
     for (auto& group : m_lineGroups) {
         group->transforms.clear();
-
-        int validCount = 0;
-        for (float amplitude : group->amplitudes) {
-            float glY = mapAmplitudeToGL(amplitude);
-            if (glY > 0.0f)
-                validCount++;
-        }
-        group->transforms.reserve(validCount);
-
-        for (int i = 0; i < m_phasePoints; ++i) {
-            float phase = (float) i / (m_phasePoints - 1) * m_phaseMax;
-            float glX   = mapPhaseToGL(phase);
-            float glY   = mapAmplitudeToGL(group->amplitudes[i]);
-
-            if (glY <= 0.0f)
-                continue;
-
-            Transform2D transform;
-            transform.position = QVector2D(glX, 0.0f);
-            transform.scale    = QVector2D(1.0f, glY);
-            transform.color    = calculateColor(glY / PRPSConstants::GL_AXIS_LENGTH);
-
-            group->transforms.push_back(transform);
-        }
-
+        group->transforms.reserve(static_cast<size_t>(cap));
+        buildLineTransformsFromCycle(group->amplitudes, group->transforms);
         group->instanceBufferDirty = true;
     }
 

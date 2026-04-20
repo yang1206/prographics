@@ -8,33 +8,37 @@
 #include "prographics/utils/utils.h"
 
 namespace ProGraphics {
+  /**
+   * @brief PRPS 图表相关常量
+   */
+  struct PRPSConstants {
+    static constexpr int PHASE_POINTS = 200; ///< 相位采样点数
+    static constexpr int CYCLES_PER_FRAME = 50; ///< 每帧周期数
+    static constexpr float GL_AXIS_LENGTH = 6.0f; ///< OpenGL 坐标轴长度
+    static constexpr float MAX_Z_POSITION = 6.0f; ///< 最大 Z 轴位置
+    static constexpr float MIN_Z_POSITION = 0.0f; ///< 最小 Z 轴位置
+    static constexpr float PHASE_MAX = 360.0f;
+    static constexpr float PHASE_MIN = 0.0f;
+    static constexpr size_t MAX_LINE_GROUPS = 80; ///< 最大线组数量
+    /** 默认渲染竖线数（小于每周期采样点数时在相位方向分桶并取桶内峰值） */
+    static constexpr int DISPLAY_LINE_COUNT_DEFAULT = 50;
+  };
 
-/**
- * @brief PRPS 图表相关常量
- */
-struct PRPSConstants {
-    static constexpr int   PHASE_POINTS     = 200;  ///< 相位采样点数
-    static constexpr int   CYCLES_PER_FRAME = 50;   ///< 每帧周期数
-    static constexpr float GL_AXIS_LENGTH   = 6.0f; ///< OpenGL 坐标轴长度
-    static constexpr float MAX_Z_POSITION   = 6.0f; ///< 最大 Z 轴位置
-    static constexpr float MIN_Z_POSITION   = 0.0f; ///< 最小 Z 轴位置
-    static constexpr float PHASE_MAX        = 360.0f;
-    static constexpr float PHASE_MIN        = 0.0f;
-    static constexpr size_t MAX_LINE_GROUPS = 80;   ///< 最大线组数量
-};
-
-/**
- * @brief 动画更新线程
- */
-class UpdateThread : public QThread {
+  /**
+   * @brief 动画更新线程
+   */
+  class UpdateThread : public QThread {
     Q_OBJECT
 
   public:
-    explicit UpdateThread(QObject* parent = nullptr);
+    explicit UpdateThread(QObject *parent = nullptr);
+
     ~UpdateThread() override;
 
     void stop();
+
     void setPaused(bool paused);
+
     void setUpdateInterval(int intervalMs);
 
   signals:
@@ -44,20 +48,20 @@ class UpdateThread : public QThread {
     void run() override;
 
   private:
-    QMutex         m_mutex;
+    QMutex m_mutex;
     QWaitCondition m_condition;
-    bool           m_abort{false};
-    bool           m_paused{false};
-    int            m_updateInterval{20};
-};
+    bool m_abort{false};
+    bool m_paused{false};
+    int m_updateInterval{20};
+  };
 
-/**
- * @brief PRPS (Phase Resolved Pulse Sequence) 局部放电脉冲序列图
- * 
- * 用于显示局部放电信号的三维时序演变。
- * 支持三种量程模式：固定、自动、自适应。
- */
-class PRPSChart : public Coordinate3D {
+  /**
+   * @brief PRPS (Phase Resolved Pulse Sequence) 局部放电脉冲序列图
+   *
+   * 用于显示局部放电信号的三维时序演变。
+   * 支持三种量程模式：固定、自动、自适应。
+   */
+  class PRPSChart : public Coordinate3D {
     Q_OBJECT
 
   public:
@@ -65,12 +69,13 @@ class PRPSChart : public Coordinate3D {
      * @brief 量程模式
      */
     enum class RangeMode {
-        Fixed,   ///< 固定模式 - 范围不随数据变化
-        Auto,    ///< 自动模式 - 完全根据数据动态调整
-        Adaptive ///< 自适应模式 - 在初始范围基础上智能调整
+      Fixed, ///< 固定模式 - 范围不随数据变化
+      Auto, ///< 自动模式 - 完全根据数据动态调整
+      Adaptive ///< 自适应模式 - 在初始范围基础上智能调整
     };
 
-    explicit PRPSChart(QWidget* parent = nullptr);
+    explicit PRPSChart(QWidget *parent = nullptr);
+
     ~PRPSChart() override;
 
     // ==================== 量程设置 API ====================
@@ -86,7 +91,7 @@ class PRPSChart : public Coordinate3D {
      * @brief 设置自动量程
      * @param config 动态量程配置参数
      */
-    void setAutoRange(const DynamicRange::DynamicRangeConfig& config = DynamicRange::DynamicRangeConfig{});
+    void setAutoRange(const DynamicRange::DynamicRangeConfig &config = DynamicRange::DynamicRangeConfig{});
 
     /**
      * @brief 设置自适应量程
@@ -94,9 +99,9 @@ class PRPSChart : public Coordinate3D {
      * @param initialMax 初始最大值
      * @param config 动态量程配置参数
      */
-    void setAdaptiveRange(float                                   initialMin,
-                          float                                   initialMax,
-                          const DynamicRange::DynamicRangeConfig& config = DynamicRange::DynamicRangeConfig{});
+    void setAdaptiveRange(float initialMin,
+                          float initialMax,
+                          const DynamicRange::DynamicRangeConfig &config = DynamicRange::DynamicRangeConfig{});
 
     // ==================== 量程查询 API ====================
 
@@ -123,7 +128,7 @@ class PRPSChart : public Coordinate3D {
      * @brief 更新自动量程配置（仅在 Auto/Adaptive 模式下有效）
      * @param config 新的配置参数
      */
-    void updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig& config);
+    void updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig &config);
 
     /**
      * @brief 切换到固定量程
@@ -166,7 +171,7 @@ class PRPSChart : public Coordinate3D {
      * @brief 添加一个周期的放电数据
      * @param cycleData 幅值数组，长度必须等于 PHASE_POINTS
      */
-    void addCycleData(const std::vector<float>& cycleData);
+    void addCycleData(const std::vector<float> &cycleData);
 
     /**
      * @brief 设置阈值
@@ -184,6 +189,18 @@ class PRPSChart : public Coordinate3D {
     void setPhasePoint(int phasePoint);
 
     /**
+     * @brief 设置每周期绘制的竖线数量（分桶峰值降采样）
+     *
+     * 当 count 大于等于每周期采样点数，或 count &lt;= 0 时，恢复为每个采样点一根线（与原先一致）。
+     */
+    void setDisplayLineCount(int count);
+
+    /**
+     * @brief 当前每周期绘制的竖线数量（用于分桶峰值时的桶数目标）
+     */
+    int displayLineCount() const { return m_displayLineCount; }
+
+    /**
      * @brief 设置动画更新间隔
      */
     void setUpdateInterval(int intervalMs) { m_updateThread.setUpdateInterval(intervalMs); }
@@ -195,19 +212,19 @@ class PRPSChart : public Coordinate3D {
 
     /**
      * @brief 暂停动画更新
-     * 
+     *
      * 暂停后：
      * - 停止滚动动画，现有数据不会被移出
      * - 如果不禁止添加新数据，新数据仍会添加到末尾
      * - 图表保持当前显示内容不变
-     * 
+     *
      * @param blockNewData 是否禁止添加新数据
      */
     void pause(bool blockNewData = true);
 
     /**
      * @brief 恢复动画更新
-     * 
+     *
      * 恢复后：
      * - 继续滚动动画，旧数据会逐步移出
      * - 恢复接受新数据
@@ -227,7 +244,7 @@ class PRPSChart : public Coordinate3D {
 
     /**
      * @brief 设置是否接受新数据
-     * 
+     *
      * 即使动画暂停，也可以控制是否接受新数据
      * @param enabled true 接受新数据，false 不接受
      */
@@ -241,6 +258,7 @@ class PRPSChart : public Coordinate3D {
 
   protected:
     void initializeGLObjects() override;
+
     void paintGLObjects() override;
 
   private slots:
@@ -250,50 +268,62 @@ class PRPSChart : public Coordinate3D {
     // ==================== 内部数据结构 ====================
 
     struct LineGroup {
-        float                    zPosition = PRPSConstants::MAX_Z_POSITION;
-        bool                     isActive  = true;
-        bool                     instanceBufferDirty = true;
-        std::vector<float>       amplitudes;
-        std::vector<Transform2D> transforms;
-        std::unique_ptr<Line2D>  instancedLine;
+      float zPosition = PRPSConstants::MAX_Z_POSITION;
+      bool isActive = true;
+      bool instanceBufferDirty = true;
+      std::vector<float> amplitudes;
+      std::vector<Transform2D> transforms;
+      std::unique_ptr<Line2D> instancedLine;
     };
 
     // ==================== 成员变量 ====================
 
-    std::vector<std::vector<float>>         m_currentCycles;
-    float                                   m_threshold = 0.1f;
-    std::vector<std::unique_ptr<LineGroup>> m_lineGroups;
-    UpdateThread                            m_updateThread;
-    float                                   m_prpsAnimationSpeed = 0.1f;
+    std::vector<std::vector<float> > m_currentCycles;
+    float m_threshold = 0.1f;
+    std::vector<std::unique_ptr<LineGroup> > m_lineGroups;
+    UpdateThread m_updateThread;
+    float m_prpsAnimationSpeed = 0.1f;
 
     DynamicRange m_dynamicRange{-75.0f, -30.0f, DynamicRange::DynamicRangeConfig()};
 
-    RangeMode m_rangeMode     = RangeMode::Fixed;
-    float     m_fixedMin      = -75.0f;
-    float     m_fixedMax      = -30.0f;
-    float     m_configuredMin = -75.0f;
-    float     m_configuredMax = -30.0f;
+    RangeMode m_rangeMode = RangeMode::Fixed;
+    float m_fixedMin = -75.0f;
+    float m_fixedMax = -30.0f;
+    float m_configuredMin = -75.0f;
+    float m_configuredMax = -30.0f;
 
-    float m_phaseMin    = PRPSConstants::PHASE_MIN;
-    float m_phaseMax    = PRPSConstants::PHASE_MAX;
-    int   m_phasePoints = PRPSConstants::PHASE_POINTS;
+    float m_phaseMin = PRPSConstants::PHASE_MIN;
+    float m_phaseMax = PRPSConstants::PHASE_MAX;
+    int m_phasePoints = PRPSConstants::PHASE_POINTS;
+    /** 每周期绘制的竖线数；默认分桶峰值，&lt;=0 或 &gt;=m_phasePoints 时逐点绘制 */
+    int m_displayLineCount = PRPSConstants::DISPLAY_LINE_COUNT_DEFAULT;
 
-    bool  m_paused      = false;      ///< 是否暂停动画
-    bool  m_acceptData  = true;       ///< 是否接受新数据
+    bool m_paused = false; ///< 是否暂停动画
+    bool m_acceptData = true; ///< 是否接受新数据
 
     // ==================== 私有方法 ====================
 
     void processCurrentCycles();
+
     void cleanupInactiveGroups();
 
+    /**
+     * @brief 由一周期幅值序列生成竖线实例变换（分桶取峰值或全采样）
+     */
+    void buildLineTransformsFromCycle(const std::vector<float> &cycleData, std::vector<Transform2D> &out) const;
+
     float mapPhaseToGL(float phase) const;
+
     float mapAmplitudeToGL(float amplitude) const;
+
     float mapGLToPhase(float glX) const;
+
     float mapGLToAmplitude(float glY) const;
 
     void recalculateLineGroups();
-    void forceUpdateRange();
-    void updateAxisTicks(float min, float max);
-};
 
+    void forceUpdateRange();
+
+    void updateAxisTicks(float min, float max);
+  };
 } // namespace ProGraphics
