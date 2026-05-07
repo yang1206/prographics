@@ -63,6 +63,7 @@ namespace ProGraphics {
             uniform mat4 view;
             uniform bool useInstancing;
             uniform float pointSize;
+            uniform float uAlphaReplace;
 
             out vec4 vertexColor;
 
@@ -70,7 +71,11 @@ namespace ProGraphics {
                 mat4 modelMatrix = useInstancing ? instanceMatrix : mat4(1.0);
                 gl_Position = projection * view * modelMatrix * vec4(aPos, 1.0);
                 gl_PointSize = pointSize;
-                vertexColor = useInstancing ? instanceColor : aColor;;
+                vec4 c = useInstancing ? instanceColor : aColor;
+                if (uAlphaReplace >= 0.0) {
+                    c.a = uAlphaReplace;
+                }
+                vertexColor = c;
             }
         )";
 
@@ -127,6 +132,7 @@ namespace ProGraphics {
     s_shaderProgram->setUniformValue("view", view);
     s_shaderProgram->setUniformValue("pointSize", m_style.pointSize);
     s_shaderProgram->setUniformValue("useInstancing", false);
+    s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
     glEnable(GL_PROGRAM_POINT_SIZE);
     m_vao.bind();
     if (m_useIndices) {
@@ -196,24 +202,30 @@ namespace ProGraphics {
   }
 
   void Primitive2D::drawInstanced(const QMatrix4x4 &projection, const QMatrix4x4 &view,
-                                  const std::vector<Transform2D> &transforms) {
+                                  const std::vector<Transform2D> &transforms,
+                                  float alphaReplace,
+                                  bool uploadInstanceData) {
     if (!m_visible || !s_shaderProgram || transforms.empty()) return;
 
     if (!m_instancedMode) {
       initializeInstanceBuffer();
     }
-    updateInstanceData(transforms);
+    if (uploadInstanceData) {
+      updateInstanceData(transforms);
+    }
 
     s_shaderProgram->bind();
     s_shaderProgram->setUniformValue("projection", projection);
     s_shaderProgram->setUniformValue("view", view);
     s_shaderProgram->setUniformValue("useInstancing", true);
     s_shaderProgram->setUniformValue("pointSize", m_style.pointSize);
+    s_shaderProgram->setUniformValue("uAlphaReplace", alphaReplace);
 
     m_vao.bind();
     glDrawArraysInstanced(getPrimitiveType(), 0, m_vertexCount, transforms.size());
     m_vao.release();
     s_shaderProgram->setUniformValue("useInstancing", false);
+    s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
 
     s_shaderProgram->release();
   }
@@ -387,6 +399,8 @@ namespace ProGraphics {
     Primitive2D::s_shaderProgram->setUniformValue("projection", projection);
     Primitive2D::s_shaderProgram->setUniformValue("view", view);
     Primitive2D::s_shaderProgram->setUniformValue("pointSize", m_style.pointSize);
+    Primitive2D::s_shaderProgram->setUniformValue("useInstancing", false);
+    Primitive2D::s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
 
     m_batchVAO.bind();
     size_t offset = 0;
@@ -558,9 +572,13 @@ namespace ProGraphics {
     s_shaderProgram->setUniformValue("projection", projection);
     s_shaderProgram->setUniformValue("view", view);
     s_shaderProgram->setUniformValue("pointSize", m_size); // 使用特定的点大小
+    s_shaderProgram->setUniformValue("useInstancing", false);
+    s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
+    glEnable(GL_PROGRAM_POINT_SIZE);
 
     m_vao.bind();
     glDrawArrays(GL_POINTS, 0, m_vertexCount);
+    glDisable(GL_PROGRAM_POINT_SIZE);
     m_vao.release();
 
     s_shaderProgram->release();

@@ -1,16 +1,23 @@
 ﻿#include "prographics/charts/base/gl_widget.h"
 
 namespace ProGraphics {
+    QSurfaceFormat chartSurfaceFormat() {
+        QSurfaceFormat f;
+        f.setRenderableType(QSurfaceFormat::OpenGL);
+        f.setVersion(4, 1);
+        f.setProfile(QSurfaceFormat::CoreProfile);
+        f.setDepthBufferSize(24);
+        f.setStencilBufferSize(8);
+        f.setSamples(0);
+        f.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+        f.setSwapInterval(1);
+        return f;
+    }
+
     BaseGLWidget::BaseGLWidget(QWidget *parent)
         : QOpenGLWidget(parent), m_program(nullptr) {
-        // 设置更新策略，减少不必要的重绘
         setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
-
-        // 预分配资源
-        QSurfaceFormat format = QSurfaceFormat::defaultFormat();
-        format.setSamples(4); // 设置多重采样
-        format.setSwapInterval(1); // 垂直同步
-        setFormat(format);
+        // setFormat(chartSurfaceFormat());
     }
 
     BaseGLWidget::~BaseGLWidget() {

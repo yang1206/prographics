@@ -188,9 +188,13 @@ namespace ProGraphics {
      * @param projection 投影矩阵
      * @param view 视图矩阵
      * @param transforms 变换数组
+     * @param alphaReplace 若 >= 0 则覆盖实例颜色的 alpha；为负则使用实例自身的 alpha（与 PRPS 深度淡出一致）
+     * @param uploadInstanceData 为 false 时跳过实例 VBO 上传（实例数据未变时用于降低动画帧开销）
      */
     void drawInstanced(const QMatrix4x4 &projection, const QMatrix4x4 &view,
-                       const std::vector<Transform2D> &transforms);
+                       const std::vector<Transform2D> &transforms,
+                       float alphaReplace = -1.0f,
+                       bool uploadInstanceData = true);
 
     /**
      * @brief 销毁图元
