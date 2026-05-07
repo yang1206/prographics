@@ -77,6 +77,7 @@ PRPSChart::PRPSChart(QWidget* parent) : Coordinate3D(parent), m_updateThread(thi
 PRPSChart::~PRPSChart() {
     m_updateThread.stop();
     makeCurrent();
+    m_phaseAmplitudePlaneDrawers.clear();
     m_lineGroups.clear();
     doneCurrent();
 }
@@ -107,12 +108,16 @@ void PRPSChart::resetData() {
 
 void PRPSChart::initializeGLObjects() {
     Coordinate3D::initializeGLObjects();
+    syncPhaseAmplitudePlaneDrawers();
 }
 
 void PRPSChart::paintGLObjects() {
     Coordinate3D::paintGLObjects();
 
-    if (m_lineGroups.empty()) {
+    const bool drawPulses = !m_lineGroups.empty();
+    const bool drawPlaneLines = hasVisiblePhaseAmplitudePlaneLines();
+
+    if (!drawPulses && !drawPlaneLines) {
         return;
     }
 
@@ -120,26 +125,112 @@ void PRPSChart::paintGLObjects() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glLineWidth(2.0f);
 
-    for (const auto& group : m_lineGroups) {
-        if (group->instancedLine && group->isActive) {
-            QMatrix4x4 model;
-            model.translate(0, 0, group->zPosition);
+    if (drawPulses) {
+        for (const auto& group : m_lineGroups) {
+            if (group->instancedLine && group->isActive) {
+                QMatrix4x4 model;
+                model.translate(0, 0, group->zPosition);
 
-            const float alphaRep =
-                (group->zPosition < 2.0f) ? (group->zPosition / 2.0f) : -1.0f;
+                const float alphaRep =
+                    (group->zPosition < 2.0f) ? (group->zPosition / 2.0f) : -1.0f;
 
-            group->instancedLine->drawInstanced(
-                camera().getProjectionMatrix(),
-                camera().getViewMatrix() * model,
-                group->transforms,
-                alphaRep,
-                group->instanceBufferDirty);
-            group->instanceBufferDirty = false;
+                group->instancedLine->drawInstanced(
+                    camera().getProjectionMatrix(),
+                    camera().getViewMatrix() * model,
+                    group->transforms,
+                    alphaRep,
+                    group->instanceBufferDirty);
+                group->instanceBufferDirty = false;
+            }
         }
+    }
+
+    if (drawPlaneLines) {
+        paintPhaseAmplitudePlaneLines();
     }
 
     glLineWidth(1.0f);
     glDisable(GL_BLEND);
+}
+
+bool PRPSChart::hasVisiblePhaseAmplitudePlaneLines() const {
+    if (m_phaseAmplitudePlaneSpecs.size() != m_phaseAmplitudePlaneDrawers.size()) {
+        return false;
+    }
+    for (const auto& spec : m_phaseAmplitudePlaneSpecs) {
+        if (spec.visible) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void PRPSChart::setPhaseAmplitudePlaneLines(const std::vector<PhaseAmplitudePlaneLine>& lines) {
+    m_phaseAmplitudePlaneSpecs = lines;
+    if (isValid()) {
+        makeCurrent();
+        syncPhaseAmplitudePlaneDrawers();
+        doneCurrent();
+    }
+    update();
+}
+
+void PRPSChart::clearPhaseAmplitudePlaneLines() {
+    m_phaseAmplitudePlaneSpecs.clear();
+    if (isValid()) {
+        makeCurrent();
+        syncPhaseAmplitudePlaneDrawers();
+        doneCurrent();
+    }
+    update();
+}
+
+void PRPSChart::syncPhaseAmplitudePlaneDrawers() {
+    m_phaseAmplitudePlaneDrawers.clear();
+
+    if (m_phaseAmplitudePlaneSpecs.empty()) {
+        return;
+    }
+
+    for (const auto& spec : m_phaseAmplitudePlaneSpecs) {
+        auto ln = std::make_unique<Line2D>(
+            QVector3D(0.0f, 0.0f, 0.0f),
+            QVector3D(PRPSConstants::GL_AXIS_LENGTH, 0.0f, 0.0f),
+            spec.color);
+
+        Primitive2DStyle style;
+        style.lineWidth = spec.lineWidth;
+        ln->setStyle(style);
+        ln->initialize();
+        m_phaseAmplitudePlaneDrawers.push_back(std::move(ln));
+    }
+}
+
+void PRPSChart::paintPhaseAmplitudePlaneLines() {
+    if (m_phaseAmplitudePlaneSpecs.size() != m_phaseAmplitudePlaneDrawers.size()) {
+        return;
+    }
+
+    const QMatrix4x4 projection = camera().getProjectionMatrix();
+    const float x0 = mapPhaseToGL(m_phaseMin);
+    const float x1 = mapPhaseToGL(m_phaseMax);
+
+    for (size_t i = 0; i < m_phaseAmplitudePlaneSpecs.size(); ++i) {
+        const PhaseAmplitudePlaneLine& spec = m_phaseAmplitudePlaneSpecs[i];
+        if (!spec.visible) {
+            continue;
+        }
+
+        const float y = mapAmplitudeToGL(spec.amplitudeDbm);
+
+        Line2D* ln = m_phaseAmplitudePlaneDrawers[i].get();
+        ln->setPoints(QVector3D(x0, y, 0.0f), QVector3D(x1, y, 0.0f));
+        ln->setColor(spec.color);
+        Primitive2DStyle style;
+        style.lineWidth = spec.lineWidth;
+        ln->setStyle(style);
+        ln->draw(projection, camera().getViewMatrix());
+    }
 }
 
 void PRPSChart::addCycleData(const std::vector<float>& cycleData) {

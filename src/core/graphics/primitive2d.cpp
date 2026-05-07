@@ -491,41 +491,25 @@ namespace ProGraphics {
   }
 
   void Line2D::draw(const QMatrix4x4 &projection, const QMatrix4x4 &view) {
-      (void)projection; // 显式标记参数未使用
-      (void)view;      // 显式标记参数未使用
-    if (!m_visible)
+    if (!m_visible || !s_shaderProgram)
       return;
     if (m_isDirty) {
       updateVertexData();
     }
-    // 应用样式
+
     glLineWidth(m_style.lineWidth);
 
-    // 处理线型
-    if (m_style.lineStyle != Qt::SolidLine) {
-      GLint factor = 1;
-      GLushort pattern = 0;
-      switch (m_style.lineStyle) {
-        case Qt::DashLine:
-          pattern = 0x00FF;
-          break;
-        case Qt::DotLine:
-          pattern = 0x0101;
-          break;
-        case Qt::DashDotLine:
-          pattern = 0x1C47;
-          break;
-        default:
-          break;
-      }
-      if (pattern != 0) {
-        glEnable(GL_LINE_STIPPLE);
-        glLineStipple(factor, pattern);
-      }
-    }
+    s_shaderProgram->bind();
+    s_shaderProgram->setUniformValue("projection", projection);
+    s_shaderProgram->setUniformValue("view", view);
+    s_shaderProgram->setUniformValue("pointSize", m_style.pointSize);
+    s_shaderProgram->setUniformValue("useInstancing", false);
+    s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
+
     m_vao.bind();
     glDrawArrays(GL_LINES, 0, m_vertexCount);
     m_vao.release();
+
     glLineWidth(1.0f);
     s_shaderProgram->release();
   }

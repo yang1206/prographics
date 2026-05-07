@@ -415,9 +415,7 @@ namespace ProGraphics {
         */
     DisplayMode getDisplayMode() const { return m_config.displayMode; }
 
-    Camera camera() {
-      return m_camera;
-    }
+    Camera camera() const { return m_camera; }
 
   protected:
     /**

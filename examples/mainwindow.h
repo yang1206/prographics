@@ -2,19 +2,12 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QTimer>
-#include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QGridLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QGroupBox>
 #include <QCheckBox>
-#include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QComboBox>
-#include <QStackedWidget>
-#include <QDialog>
 #include "prographics/charts/prpd/prpd.h"
 #include "prographics/charts/prps/prps.h"
 
@@ -26,16 +19,26 @@ public:
 
 private slots:
     void onGenerateData();
+
     void onGenerateBatch(int count);
+
     void onRangeModeChanged(int index);
+
     void onApplyRange();
+
     void onResetAll();
+
     void updateStatus();
+
     void onTestDialog();
 
 private:
     void setupUI();
+
     void updateUIForMode(int modeIndex);
+
+    void syncSharedAmplitudeReferenceLines();
+
     std::vector<float> generateRandomData();
 
     ProGraphics::PRPSChart *m_prpsChart;
@@ -62,6 +65,14 @@ private:
     QDoubleSpinBox *m_recoveryRatioSpin;
     QCheckBox *m_smartAdjustCheck;
     QCheckBox *m_enableRecoveryCheck;
+
+    QCheckBox *m_refLinesEnabledCheck;
+    QCheckBox *m_refLine1VisibleCheck;
+    QDoubleSpinBox *m_refLine1AmpSpin;
+    QDoubleSpinBox *m_refLine1WidthSpin;
+    QCheckBox *m_refLine2VisibleCheck;
+    QDoubleSpinBox *m_refLine2AmpSpin;
+    QDoubleSpinBox *m_refLine2WidthSpin;
 
     // 硬限制
     QCheckBox *m_enableHardLimitsCheck;

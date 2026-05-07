@@ -43,6 +43,7 @@ file(GLOB_RECURSE PROGRAPHICS_HEADERS
 # 明确列出带有Q_OBJECT宏的头文件
 set(WRAPPED_HEADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/charts/base/gl_widget.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/charts/prpd/prpd.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/utils/orbit_controls.h"
 )
 

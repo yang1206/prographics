@@ -1,9 +1,30 @@
 ﻿#pragma once
 
 #include "prographics/charts/coordinate/coordinate2d.h"
+#include "prographics/prographics_export.h"
 #include "prographics/utils/utils.h"
+#include <memory>
+#include <vector>
+
+class QMouseEvent;
 
 namespace ProGraphics {
+
+    class Line2D;
+    class Point2D;
+
+    /**
+     * @brief PRPD 幅值轴方向的水平参考线（纯几何：给定幅值处的横线，与业务语义无关）。
+     *
+     * 相位横跨当前相位范围；量程变化时幅值位置按当前映射更新。
+     */
+    struct PROGRAPHICS_EXPORT AmplitudeLine {
+        float     amplitudeDbm = 0.0f; ///< 幅值（与纵轴物理单位一致，如 dBm）
+        QVector4D color{1.0f, 0.0f, 0.0f, 1.0f}; ///< RGBA
+        float     lineWidth = 2.0f; ///< 线宽（像素）
+        bool      visible   = true; ///< 为 false 时不绘制
+    };
+
     /**
      * @brief PRPD 图表相关常量
      */
@@ -23,7 +44,7 @@ namespace ProGraphics {
      * 用于显示局部放电信号的相位-幅值-频次三维分布关系。
      * 支持三种量程模式：固定、自动、自适应。
      */
-    class PRPDChart : public Coordinate2D {
+    class PROGRAPHICS_EXPORT PRPDChart : public Coordinate2D {
         Q_OBJECT
 
     public:
@@ -146,6 +167,48 @@ namespace ProGraphics {
         void setPhasePoint(int phasePoint);
 
         /**
+         * @brief 设置幅值方向水平参考线（替换整条列表）。
+         *
+         * 与散点数据无关：列表非空、内部 drawers 已同步且存在 visible==true 的条目即绘制；
+         * 幅值位置随当前量程映射更新。
+         */
+        void setAmplitudeLines(const std::vector<AmplitudeLine> &lines);
+
+        /**
+         * @brief 移除所有幅值水平参考线。
+         */
+        void clearAmplitudeLines();
+
+        /**
+         * @brief 当前水平参考线配置（只读）。
+         */
+        const std::vector<AmplitudeLine> &amplitudeLines() const { return m_amplitudeLineSpecs; }
+
+        /**
+         * @brief 是否允许拖动参考线以修改幅值（左键）。默认关闭以免干扰现有手势。
+         */
+        void setAmplitudeReferenceLinesDraggable(bool enabled);
+
+        /**
+         * @brief @see setAmplitudeReferenceLinesDraggable
+         */
+        bool amplitudeReferenceLinesDraggable() const { return m_amplitudeRefDragEnabled; }
+
+        /**
+         * @brief 拖动时幅值量化步长（例如 1 表示按整数步长对齐）。
+         */
+        void setAmplitudeReferenceLineDragSnapStep(float step);
+
+        float amplitudeReferenceLineDragSnapStep() const { return m_dragSnapStep; }
+
+        /**
+         * @brief 竖直方向命中参考线的像素容差。
+         */
+        void setAmplitudeReferenceLinePickTolerancePx(float pixels);
+
+        float amplitudeReferenceLinePickTolerancePx() const { return m_dragPickTolerancePx; }
+
+        /**
          * @brief 重置所有数据
          */
         void resetData() {
@@ -216,10 +279,21 @@ namespace ProGraphics {
          */
         bool isAcceptingData() const { return m_acceptData; }
 
+    signals:
+        void amplitudeReferenceLineDragStarted(int index, float amplitudeDbm);
+        void amplitudeReferenceLineDragged(int index, float amplitudeDbm);
+        void amplitudeReferenceLineDragEnded(int index, float amplitudeDbm);
+
     protected:
         void initializeGLObjects() override;
 
         void paintGLObjects() override;
+
+        void mousePressEvent(QMouseEvent *event) override;
+
+        void mouseMoveEvent(QMouseEvent *event) override;
+
+        void mouseReleaseEvent(QMouseEvent *event) override;
 
     private:
         // ==================== 内部数据结构 ====================
@@ -269,6 +343,9 @@ namespace ProGraphics {
 
         std::unique_ptr<Point2D> m_pointRenderer;
 
+        std::vector<AmplitudeLine>              m_amplitudeLineSpecs;
+        std::vector<std::unique_ptr<Line2D>> m_amplitudeLineDrawers;
+
         float m_amplitudeMin = -75.0f;
         float m_amplitudeMax = -30.0f;
         float m_displayMin = -75.0f;
@@ -288,7 +365,25 @@ namespace ProGraphics {
         bool m_paused = false;      ///< 是否暂停数据更新
         bool m_acceptData = true;  ///< 是否接受新数据
 
+        bool m_amplitudeRefDragEnabled = false;
+        bool m_draggingAmplitudeRef    = false;
+        int  m_draggingAmplitudeRefIndex = -1;
+        float m_dragSnapStep           = 1.0f;
+        float m_dragPickTolerancePx    = 10.0f;
+
         // ==================== 私有方法 ====================
+
+        void queryDisplayedAmplitudeRange(float &displayMin, float &displayMax) const;
+
+        QVector3D unprojectWidgetToChartPlane(const QPoint &widgetPos) const;
+
+        QPointF projectChartToWidget(const QVector3D &chartPos) const;
+
+        int pickAmplitudeLineAt(const QPoint &widgetPos) const;
+
+        float snapDragAmplitude(float amplitudeDbm) const;
+
+        float amplitudeFromWidgetPos(const QPoint &pos) const;
 
         void updatePointTransformsFromFrequencyTable();
 
@@ -313,5 +408,11 @@ namespace ProGraphics {
         void forceUpdateRange();
 
         void updateAxisTicks(float min, float max);
+
+        void syncAmplitudeLineDrawers();
+
+        void paintAmplitudeLines();
+
+        bool hasVisibleAmplitudeLines() const;
     };
 } // namespace ProGraphics

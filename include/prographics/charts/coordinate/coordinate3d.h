@@ -311,9 +311,7 @@ namespace ProGraphics {
      */
     void resetCameraToOptimalView();
 
-    Camera camera() {
-      return m_camera;
-    }
+    Camera camera() const { return m_camera; }
 
   protected:
     /**

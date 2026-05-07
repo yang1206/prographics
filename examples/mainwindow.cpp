@@ -2,6 +2,10 @@
 #include <QSplitter>
 #include <QScrollArea>
 #include <QFrame>
+#include <QVector4D>
+#include <QDialog>
+#include <QSignalBlocker>
+#include <QGroupBox>
 #include <random>
 #include <cmath>
 
@@ -91,6 +95,88 @@ void MainWindow::setupUI() {
     pauseControlLayout->addWidget(m_globalPauseStatusLabel);
 
     connect(m_globalPauseButton, &QPushButton::clicked, this, &MainWindow::onGlobalPauseClicked);
+
+    // ==================== 幅值参考线（PRPD + PRPS 共用）====================
+    QGroupBox *refLinesGroup = new QGroupBox("幅值参考线（PRPD / PRPS）");
+    QVBoxLayout *refLinesOuter = new QVBoxLayout(refLinesGroup);
+    QLabel *refLinesHint = new QLabel(
+        "同一套参数同时下发：PRPD 用 AmplitudeLine + setAmplitudeLines；\n"
+        "PRPS 用 PhaseAmplitudePlaneLine + setPhaseAmplitudePlaneLines。\n"
+        "两侧均与有无实时数据无关；PRPS 的画在坐标轴/XY 网格所在平面（局部 z=0）。");
+    refLinesHint->setWordWrap(true);
+    refLinesHint->setStyleSheet("QLabel { color: #666; font-size: 11px; }");
+    refLinesOuter->addWidget(refLinesHint);
+
+    m_refLinesEnabledCheck = new QCheckBox("启用");
+    m_refLinesEnabledCheck->setChecked(true);
+    refLinesOuter->addWidget(m_refLinesEnabledCheck);
+
+    auto setupAmpSpin = [](QDoubleSpinBox *s, double lo, double hi, double step, int decimals) {
+        s->setRange(lo, hi);
+        s->setSingleStep(step);
+        s->setDecimals(decimals);
+    };
+
+    QGridLayout *refGrid = new QGridLayout();
+    refGrid->setHorizontalSpacing(6);
+    refGrid->setVerticalSpacing(4);
+
+    m_refLine1VisibleCheck = new QCheckBox("线1");
+    m_refLine1VisibleCheck->setChecked(true);
+    m_refLine1AmpSpin = new QDoubleSpinBox();
+    setupAmpSpin(m_refLine1AmpSpin, -10000.0, 10000.0, 0.5, 2);
+    m_refLine1AmpSpin->setValue(-35.0);
+    m_refLine1WidthSpin = new QDoubleSpinBox();
+    setupAmpSpin(m_refLine1WidthSpin, 0.5, 16.0, 0.5, 1);
+    m_refLine1WidthSpin->setValue(2.5);
+    refGrid->addWidget(m_refLine1VisibleCheck, 0, 0);
+    refGrid->addWidget(new QLabel("幅值"), 0, 1);
+    refGrid->addWidget(m_refLine1AmpSpin, 0, 2);
+    refGrid->addWidget(new QLabel("线宽"), 0, 3);
+    refGrid->addWidget(m_refLine1WidthSpin, 0, 4);
+
+    m_refLine2VisibleCheck = new QCheckBox("线2");
+    m_refLine2VisibleCheck->setChecked(true);
+    m_refLine2AmpSpin = new QDoubleSpinBox();
+    setupAmpSpin(m_refLine2AmpSpin, -10000.0, 10000.0, 0.5, 2);
+    m_refLine2AmpSpin->setValue(-50.0);
+    m_refLine2WidthSpin = new QDoubleSpinBox();
+    setupAmpSpin(m_refLine2WidthSpin, 0.5, 16.0, 0.5, 1);
+    m_refLine2WidthSpin->setValue(2.0);
+    refGrid->addWidget(m_refLine2VisibleCheck, 1, 0);
+    refGrid->addWidget(new QLabel("幅值"), 1, 1);
+    refGrid->addWidget(m_refLine2AmpSpin, 1, 2);
+    refGrid->addWidget(new QLabel("线宽"), 1, 3);
+    refGrid->addWidget(m_refLine2WidthSpin, 1, 4);
+
+    QLabel *colorHint =
+            new QLabel("示例：线1 红 / 线2 橙（业务可自行配色）。");
+    colorHint->setWordWrap(true);
+    colorHint->setStyleSheet("QLabel { color: #666; font-size: 10px; }");
+    refLinesOuter->addLayout(refGrid);
+    refLinesOuter->addWidget(colorHint);
+
+    auto bindRefLineInputs = [this] { syncSharedAmplitudeReferenceLines(); };
+    connect(m_refLinesEnabledCheck, &QCheckBox::toggled, this, [this](bool on) {
+        const bool en = on;
+        m_refLine1VisibleCheck->setEnabled(en);
+        m_refLine1AmpSpin->setEnabled(en);
+        m_refLine1WidthSpin->setEnabled(en);
+        m_refLine2VisibleCheck->setEnabled(en);
+        m_refLine2AmpSpin->setEnabled(en);
+        m_refLine2WidthSpin->setEnabled(en);
+        syncSharedAmplitudeReferenceLines();
+    });
+    connect(m_refLine1VisibleCheck, &QCheckBox::toggled, this, bindRefLineInputs);
+    connect(m_refLine2VisibleCheck, &QCheckBox::toggled, this, bindRefLineInputs);
+    connect(m_refLine1AmpSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            bindRefLineInputs);
+    connect(m_refLine1WidthSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            bindRefLineInputs);
+    connect(m_refLine2AmpSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            bindRefLineInputs);
+    connect(m_refLine2WidthSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            bindRefLineInputs);
 
     // ==================== 量程模式 ====================
     QGroupBox *modeGroup = new QGroupBox("量程模式");
@@ -242,6 +328,7 @@ void MainWindow::setupUI() {
     // 组装控制面板
     controlLayout->addWidget(dataGroup);
     controlLayout->addWidget(pauseControlGroup);
+    controlLayout->addWidget(refLinesGroup);
     controlLayout->addWidget(modeGroup);
     controlLayout->addWidget(rangeGroup);
     controlLayout->addWidget(m_dynamicConfigWidget);
@@ -257,6 +344,25 @@ void MainWindow::setupUI() {
     m_prpsChart = new ProGraphics::PRPSChart(central);
     m_prpdChart = new ProGraphics::PRPDChart(central);
 
+    m_prpdChart->setAmplitudeReferenceLinesDraggable(true);
+    const auto syncRefSpinsFromPrpdDrag = [this](int idx, float amp) {
+        if (!m_refLinesEnabledCheck || !m_refLinesEnabledCheck->isChecked()) {
+            return;
+        }
+        if (idx == 0) {
+            const QSignalBlocker b(m_refLine1AmpSpin);
+            m_refLine1AmpSpin->setValue(static_cast<double>(amp));
+        } else if (idx == 1) {
+            const QSignalBlocker b(m_refLine2AmpSpin);
+            m_refLine2AmpSpin->setValue(static_cast<double>(amp));
+        }
+        syncSharedAmplitudeReferenceLines();
+    };
+    connect(m_prpdChart, &ProGraphics::PRPDChart::amplitudeReferenceLineDragged, this,
+            syncRefSpinsFromPrpdDrag);
+    connect(m_prpdChart, &ProGraphics::PRPDChart::amplitudeReferenceLineDragEnded, this,
+            syncRefSpinsFromPrpdDrag);
+
     QSplitter *chartSplitter = new QSplitter(Qt::Vertical);
     chartSplitter->addWidget(m_prpsChart);
     chartSplitter->addWidget(m_prpdChart);
@@ -265,6 +371,49 @@ void MainWindow::setupUI() {
     mainLayout->addWidget(chartSplitter, 1);
 
     resize(1200, 800);
+
+    syncSharedAmplitudeReferenceLines();
+}
+
+void MainWindow::syncSharedAmplitudeReferenceLines() {
+    if (!m_prpdChart || !m_prpsChart || !m_refLinesEnabledCheck) {
+        return;
+    }
+    if (!m_refLinesEnabledCheck->isChecked()) {
+        m_prpdChart->clearAmplitudeLines();
+        m_prpsChart->clearPhaseAmplitudePlaneLines();
+        return;
+    }
+
+    std::vector<ProGraphics::AmplitudeLine> prpdLines;
+    std::vector<ProGraphics::PhaseAmplitudePlaneLine> prpsLines;
+
+    if (m_refLine1VisibleCheck->isChecked()) {
+        ProGraphics::AmplitudeLine L{};
+        L.amplitudeDbm = static_cast<float>(m_refLine1AmpSpin->value());
+        L.color = QVector4D(1.0f, 0.2f, 0.2f, 1.0f);
+        L.lineWidth = static_cast<float>(m_refLine1WidthSpin->value());
+        L.visible = true;
+        prpdLines.push_back(L);
+        prpsLines.push_back({L.amplitudeDbm, L.color, L.lineWidth, L.visible});
+    }
+    if (m_refLine2VisibleCheck->isChecked()) {
+        ProGraphics::AmplitudeLine L{};
+        L.amplitudeDbm = static_cast<float>(m_refLine2AmpSpin->value());
+        L.color = QVector4D(1.0f, 0.55f, 0.1f, 0.9f);
+        L.lineWidth = static_cast<float>(m_refLine2WidthSpin->value());
+        L.visible = true;
+        prpdLines.push_back(L);
+        prpsLines.push_back({L.amplitudeDbm, L.color, L.lineWidth, L.visible});
+    }
+
+    if (prpdLines.empty()) {
+        m_prpdChart->clearAmplitudeLines();
+        m_prpsChart->clearPhaseAmplitudePlaneLines();
+    } else {
+        m_prpdChart->setAmplitudeLines(prpdLines);
+        m_prpsChart->setPhaseAmplitudePlaneLines(prpsLines);
+    }
 }
 
 void MainWindow::onRangeModeChanged(int index) {
@@ -352,8 +501,25 @@ void MainWindow::onResetAll() {
     m_dataMinSpin->setValue(-60);
     m_dataMaxSpin->setValue(-40);
 
+    m_refLinesEnabledCheck->setChecked(true);
+    m_refLine1VisibleCheck->setChecked(true);
+    m_refLine1AmpSpin->setValue(-35.0);
+    m_refLine1WidthSpin->setValue(2.5);
+    m_refLine2VisibleCheck->setChecked(true);
+    m_refLine2AmpSpin->setValue(-50.0);
+    m_refLine2WidthSpin->setValue(2.0);
+
+    const bool refEn = m_refLinesEnabledCheck->isChecked();
+    m_refLine1VisibleCheck->setEnabled(refEn);
+    m_refLine1AmpSpin->setEnabled(refEn);
+    m_refLine1WidthSpin->setEnabled(refEn);
+    m_refLine2VisibleCheck->setEnabled(refEn);
+    m_refLine2AmpSpin->setEnabled(refEn);
+    m_refLine2WidthSpin->setEnabled(refEn);
+
     updateUIForMode(0);
     onApplyRange();
+    syncSharedAmplitudeReferenceLines();
 }
 
 void MainWindow::updateStatus() {
@@ -416,7 +582,7 @@ std::vector<float> MainWindow::generateRandomData() {
 void MainWindow::onGlobalPauseClicked() {
     // 两个图表同步状态，以 PRPS 的状态为准
     bool newPausedState = !m_prpsChart->isPaused();
-    
+
     if (newPausedState) {
         // 暂停 - 默认禁止接收数据 (blockNewData = true)
         m_prpsChart->pause(true);

@@ -1,6 +1,10 @@
 #include "prographics/charts/prpd/prpd.h"
 #include "prographics/charts/prps/prps.h"
+#include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
+#include <QMouseEvent>
+#include <QOpenGLWidget>
+#include <cmath>
 
 namespace ProGraphics {
 
@@ -25,7 +29,13 @@ PRPDChart::PRPDChart(QWidget* parent) : Coordinate2D(parent) {
 }
 
 PRPDChart::~PRPDChart() {
+    if (m_draggingAmplitudeRef) {
+        releaseMouse();
+        m_draggingAmplitudeRef     = false;
+        m_draggingAmplitudeRefIndex = -1;
+    }
     makeCurrent();
+    m_amplitudeLineDrawers.clear();
     m_pointRenderer.reset();
     doneCurrent();
 }
@@ -43,26 +53,115 @@ void PRPDChart::initializeGLObjects() {
     m_cycleBuffer.data.reserve(PRPDConstants::MAX_CYCLES);
     m_cycleBuffer.binIndices.reserve(PRPDConstants::MAX_CYCLES);
     m_renderBatchMap.reserve(100);
+
+    syncAmplitudeLineDrawers();
 }
 
 void PRPDChart::paintGLObjects() {
     Coordinate2D::paintGLObjects();
 
-    if (!m_pointRenderer || m_renderBatchMap.empty()) {
+    if (m_pointRenderer && !m_renderBatchMap.empty()) {
+        for (auto& [freq, batch] : m_renderBatchMap) {
+            if (batch.pointMap.empty())
+                continue;
+
+            QVector4D color = calculateColor(batch.frequency);
+            batch.rebuildTransforms(color);
+
+            m_pointRenderer->setColor(color);
+            m_pointRenderer->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
+                                             batch.transforms);
+        }
+    }
+
+    if (hasVisibleAmplitudeLines()) {
+        paintAmplitudeLines();
+    }
+}
+
+bool PRPDChart::hasVisibleAmplitudeLines() const {
+    if (m_amplitudeLineSpecs.size() != m_amplitudeLineDrawers.size()) {
+        return false;
+    }
+    for (const auto& spec : m_amplitudeLineSpecs) {
+        if (spec.visible) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void PRPDChart::setAmplitudeLines(const std::vector<AmplitudeLine>& lines) {
+    m_amplitudeLineSpecs = lines;
+    if (isValid()) {
+        makeCurrent();
+        syncAmplitudeLineDrawers();
+        doneCurrent();
+    }
+    update();
+}
+
+void PRPDChart::clearAmplitudeLines() {
+    m_amplitudeLineSpecs.clear();
+    if (isValid()) {
+        makeCurrent();
+        syncAmplitudeLineDrawers();
+        doneCurrent();
+    }
+    update();
+}
+
+void PRPDChart::syncAmplitudeLineDrawers() {
+    m_amplitudeLineDrawers.clear();
+
+    if (m_amplitudeLineSpecs.empty()) {
         return;
     }
 
-    for (auto& [freq, batch] : m_renderBatchMap) {
-        if (batch.pointMap.empty())
-            continue;
+    for (const auto& spec : m_amplitudeLineSpecs) {
+        auto ln = std::make_unique<Line2D>(
+            QVector3D(0.0f, 0.0f, 0.0f),
+            QVector3D(PRPDConstants::GL_AXIS_LENGTH, 0.0f, 0.0f),
+            spec.color);
 
-        QVector4D color = calculateColor(batch.frequency);
-        batch.rebuildTransforms(color);
-
-        m_pointRenderer->setColor(color);
-        m_pointRenderer->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(), batch.transforms);
+        Primitive2DStyle style;
+        style.lineWidth = spec.lineWidth;
+        ln->setStyle(style);
+        ln->initialize();
+        m_amplitudeLineDrawers.push_back(std::move(ln));
     }
-    glPopAttrib();
+}
+
+void PRPDChart::paintAmplitudeLines() {
+    if (m_amplitudeLineSpecs.size() != m_amplitudeLineDrawers.size()) {
+        return;
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    const QMatrix4x4 projection = camera().getProjectionMatrix();
+    const QMatrix4x4 view       = camera().getViewMatrix();
+
+    const float x0 = mapPhaseToGL(m_phaseMin);
+    const float x1 = mapPhaseToGL(m_phaseMax);
+
+    for (size_t i = 0; i < m_amplitudeLineSpecs.size(); ++i) {
+        const AmplitudeLine& spec = m_amplitudeLineSpecs[i];
+        if (!spec.visible) {
+            continue;
+        }
+
+        const float y = mapAmplitudeToGL(spec.amplitudeDbm);
+
+        Line2D* ln = m_amplitudeLineDrawers[i].get();
+        ln->setPoints(QVector3D(x0, y, 0.0f), QVector3D(x1, y, 0.0f));
+        ln->setColor(spec.color);
+        Primitive2DStyle style;
+        style.lineWidth = spec.lineWidth;
+        ln->setStyle(style);
+        ln->draw(projection, view);
+    }
 }
 
 void PRPDChart::addCycleData(const std::vector<float>& cycleData) {
@@ -349,9 +448,7 @@ float PRPDChart::mapPhaseToGL(float phase) const {
     return (phase - m_phaseMin) / (m_phaseMax - m_phaseMin) * PRPDConstants::GL_AXIS_LENGTH;
 }
 
-float PRPDChart::mapAmplitudeToGL(float amplitude) const {
-    float displayMin = m_fixedMin, displayMax = m_fixedMax;
-
+void PRPDChart::queryDisplayedAmplitudeRange(float &displayMin, float &displayMax) const {
     switch (m_rangeMode) {
         case RangeMode::Fixed:
             displayMin = m_fixedMin;
@@ -362,6 +459,12 @@ float PRPDChart::mapAmplitudeToGL(float amplitude) const {
             std::tie(displayMin, displayMax) = m_dynamicRange.getDisplayRange();
             break;
     }
+}
+
+float PRPDChart::mapAmplitudeToGL(float amplitude) const {
+    float displayMin = 0.f;
+    float displayMax = 0.f;
+    queryDisplayedAmplitudeRange(displayMin, displayMax);
 
     if (amplitude < displayMin) {
         return 0.0f;
@@ -371,6 +474,192 @@ float PRPDChart::mapAmplitudeToGL(float amplitude) const {
     }
 
     return (amplitude - displayMin) / (displayMax - displayMin) * PRPDConstants::GL_AXIS_LENGTH;
+}
+
+QVector3D PRPDChart::unprojectWidgetToChartPlane(const QPoint &widgetPos) const {
+    const float w = std::max(1, width());
+    const float h = std::max(1, height());
+    const float nx = 2.0f * static_cast<float>(widgetPos.x()) / w - 1.0f;
+    const float ny = 1.0f - 2.0f * static_cast<float>(widgetPos.y()) / h;
+    const QMatrix4x4 pv = camera().getProjectionMatrix() * camera().getViewMatrix();
+    bool invertible = false;
+    const QMatrix4x4 inv = pv.inverted(&invertible);
+    if (!invertible) {
+        return QVector3D();
+    }
+    QVector4D world = inv * QVector4D(nx, ny, 0.0f, 1.0f);
+    if (std::abs(world.w()) > 1e-8f) {
+        world /= world.w();
+    }
+    return QVector3D(world.x(), world.y(), world.z());
+}
+
+QPointF PRPDChart::projectChartToWidget(const QVector3D &chartPos) const {
+    const QMatrix4x4    pv   = camera().getProjectionMatrix() * camera().getViewMatrix();
+    QVector4D           clip = pv * QVector4D(chartPos, 1.0f);
+    const float         iw   = clip.w();
+    if (std::abs(iw) > 1e-8f) {
+        clip /= iw;
+    }
+    const float ww = std::max(1, width());
+    const float hh = std::max(1, height());
+    const float sx = (clip.x() * 0.5f + 0.5f) * ww;
+    const float sy = (1.0f - (clip.y() * 0.5f + 0.5f)) * hh;
+    return QPointF(sx, sy);
+}
+
+float PRPDChart::snapDragAmplitude(float amplitudeDbm) const {
+    float displayMin = 0.f;
+    float displayMax = 0.f;
+    queryDisplayedAmplitudeRange(displayMin, displayMax);
+    float a = std::clamp(amplitudeDbm, displayMin, displayMax);
+    if (m_dragSnapStep > 1e-20f) {
+        a = std::round(a / m_dragSnapStep) * m_dragSnapStep;
+    }
+    return std::clamp(a, displayMin, displayMax);
+}
+
+float PRPDChart::amplitudeFromWidgetPos(const QPoint &pos) const {
+    const QVector3D c = unprojectWidgetToChartPlane(pos);
+    float           displayMin = 0.f;
+    float           displayMax = 0.f;
+    queryDisplayedAmplitudeRange(displayMin, displayMax);
+    const float L = PRPDConstants::GL_AXIS_LENGTH;
+    float       chartY = c.y();
+    float       linearAmp;
+    if (chartY <= 0.f) {
+        linearAmp = displayMin;
+    } else if (chartY >= L) {
+        linearAmp = displayMax;
+    } else {
+        linearAmp = (chartY / L) * (displayMax - displayMin) + displayMin;
+    }
+    return snapDragAmplitude(linearAmp);
+}
+
+int PRPDChart::pickAmplitudeLineAt(const QPoint &widgetPos) const {
+    if (!m_amplitudeRefDragEnabled) {
+        return -1;
+    }
+    if (m_amplitudeLineSpecs.size() != m_amplitudeLineDrawers.size()) {
+        return -1;
+    }
+
+    const QVector3D chartHit = unprojectWidgetToChartPlane(widgetPos);
+    const float       x0     = mapPhaseToGL(m_phaseMin);
+    const float       x1     = mapPhaseToGL(m_phaseMax);
+    const float       xmin   = std::min(x0, x1);
+    const float       xmax   = std::max(x0, x1);
+    if (chartHit.x() < xmin || chartHit.x() > xmax) {
+        return -1;
+    }
+
+    int         bestIdx    = -1;
+    float       bestPixelDy = m_dragPickTolerancePx + 1.f;
+    const float midX       = 0.5f * (x0 + x1);
+
+    for (size_t i = 0; i < m_amplitudeLineSpecs.size(); ++i) {
+        if (!m_amplitudeLineSpecs[i].visible) {
+            continue;
+        }
+        const float yGl      = mapAmplitudeToGL(m_amplitudeLineSpecs[i].amplitudeDbm);
+        const QPointF screenMid = projectChartToWidget(QVector3D(midX, yGl, 0.0f));
+        const float dy =
+            std::abs(static_cast<float>(widgetPos.y()) - static_cast<float>(screenMid.y()));
+        if (dy <= m_dragPickTolerancePx && dy < bestPixelDy) {
+            bestPixelDy = dy;
+            bestIdx     = static_cast<int>(i);
+        }
+    }
+    return bestIdx;
+}
+
+void PRPDChart::setAmplitudeReferenceLinesDraggable(bool enabled) {
+    if (m_amplitudeRefDragEnabled == enabled) {
+        return;
+    }
+    if (!enabled && m_draggingAmplitudeRef) {
+        const int idx = m_draggingAmplitudeRefIndex;
+        float     amp = 0.f;
+        if (idx >= 0 && idx < static_cast<int>(m_amplitudeLineSpecs.size())) {
+            amp = m_amplitudeLineSpecs[static_cast<size_t>(idx)].amplitudeDbm;
+        }
+        m_draggingAmplitudeRef      = false;
+        m_draggingAmplitudeRefIndex = -1;
+        setMouseTracking(false);
+        releaseMouse();
+        emit amplitudeReferenceLineDragEnded(idx, amp);
+    }
+    m_amplitudeRefDragEnabled = enabled;
+}
+
+void PRPDChart::setAmplitudeReferenceLineDragSnapStep(float step) {
+    m_dragSnapStep = step > 0.f ? step : 1.f;
+}
+
+void PRPDChart::setAmplitudeReferenceLinePickTolerancePx(float pixels) {
+    m_dragPickTolerancePx = std::max(1.f, pixels);
+}
+
+void PRPDChart::mousePressEvent(QMouseEvent *event) {
+    if (!m_amplitudeRefDragEnabled || event->button() != Qt::LeftButton) {
+        QOpenGLWidget::mousePressEvent(event);
+        return;
+    }
+    const int idx = pickAmplitudeLineAt(event->pos());
+    if (idx < 0) {
+        QOpenGLWidget::mousePressEvent(event);
+        return;
+    }
+    m_draggingAmplitudeRef      = true;
+    m_draggingAmplitudeRefIndex = idx;
+    setMouseTracking(true);
+    grabMouse();
+    event->accept();
+    const float startAmp = m_amplitudeLineSpecs[static_cast<size_t>(idx)].amplitudeDbm;
+    emit amplitudeReferenceLineDragStarted(idx, startAmp);
+}
+
+void PRPDChart::mouseMoveEvent(QMouseEvent *event) {
+    if (m_draggingAmplitudeRef && m_draggingAmplitudeRefIndex >= 0) {
+        const int idx = m_draggingAmplitudeRefIndex;
+        if (idx >= static_cast<int>(m_amplitudeLineSpecs.size())) {
+            m_draggingAmplitudeRef      = false;
+            m_draggingAmplitudeRefIndex = -1;
+            setMouseTracking(false);
+            releaseMouse();
+            QOpenGLWidget::mouseMoveEvent(event);
+            return;
+        }
+        const float newAmp = amplitudeFromWidgetPos(event->pos());
+        float &stored = m_amplitudeLineSpecs[static_cast<size_t>(idx)].amplitudeDbm;
+        if (std::abs(newAmp - stored) > 1e-6f) {
+            stored = newAmp;
+            update();
+            emit amplitudeReferenceLineDragged(idx, newAmp);
+        }
+        event->accept();
+        return;
+    }
+    QOpenGLWidget::mouseMoveEvent(event);
+}
+
+void PRPDChart::mouseReleaseEvent(QMouseEvent *event) {
+    if (m_draggingAmplitudeRef && event->button() == Qt::LeftButton) {
+        const int idx = m_draggingAmplitudeRefIndex;
+        float     amp = 0.f;
+        if (idx >= 0 && idx < static_cast<int>(m_amplitudeLineSpecs.size())) {
+            amp = m_amplitudeLineSpecs[static_cast<size_t>(idx)].amplitudeDbm;
+        }
+        m_draggingAmplitudeRef      = false;
+        m_draggingAmplitudeRefIndex = -1;
+        setMouseTracking(false);
+        releaseMouse();
+        emit amplitudeReferenceLineDragEnded(idx, amp);
+        event->accept();
+        return;
+    }
+    QOpenGLWidget::mouseReleaseEvent(event);
 }
 
 void PRPDChart::rebuildFrequencyTable() {

@@ -6,6 +6,8 @@
 #include "prographics/charts/coordinate/coordinate3d.h"
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
+#include <memory>
+#include <vector>
 
 namespace ProGraphics {
   /**
@@ -22,6 +24,19 @@ namespace ProGraphics {
     static constexpr size_t MAX_LINE_GROUPS = 80; ///< 最大线组数量
     /** 默认渲染竖线数（小于每周期采样点数时在相位方向分桶并取桶内峰值） */
     static constexpr int DISPLAY_LINE_COUNT_DEFAULT = 50;
+  };
+
+  /**
+   * @brief PRPS 相位–幅值平面（XY）上的水平参考线。
+   *
+   * 与 Coordinate3D 中 Axis / XY 网格一致：局部顶点 z=0，不传额外的 translate-Z；
+   * 与沿 Z 轴滚动的脉冲竖线切片区分开。
+   */
+  struct PhaseAmplitudePlaneLine {
+    float amplitudeDbm = 0.0f;
+    QVector4D color{1.0f, 0.0f, 0.0f, 1.0f};
+    float lineWidth = 2.0f;
+    bool visible = true;
   };
 
   /**
@@ -201,6 +216,24 @@ namespace ProGraphics {
     int displayLineCount() const { return m_displayLineCount; }
 
     /**
+     * @brief 设置相位–幅值平面（XY）上的水平参考线（替换整条列表）。
+     *
+     */
+    void setPhaseAmplitudePlaneLines(const std::vector<PhaseAmplitudePlaneLine> &lines);
+
+    /**
+     * @brief 移除上述参考线。
+     */
+    void clearPhaseAmplitudePlaneLines();
+
+    /**
+     * @brief 当前参考线配置（只读）。
+     */
+    const std::vector<PhaseAmplitudePlaneLine> &phaseAmplitudePlaneLines() const {
+      return m_phaseAmplitudePlaneSpecs;
+    }
+
+    /**
      * @brief 设置动画更新间隔
      */
     void setUpdateInterval(int intervalMs) { m_updateThread.setUpdateInterval(intervalMs); }
@@ -281,6 +314,8 @@ namespace ProGraphics {
     std::vector<std::vector<float> > m_currentCycles;
     float m_threshold = 0.1f;
     std::vector<std::unique_ptr<LineGroup> > m_lineGroups;
+    std::vector<PhaseAmplitudePlaneLine> m_phaseAmplitudePlaneSpecs;
+    std::vector<std::unique_ptr<Line2D> > m_phaseAmplitudePlaneDrawers;
     UpdateThread m_updateThread;
     float m_prpsAnimationSpeed = 0.1f;
 
@@ -325,5 +360,11 @@ namespace ProGraphics {
     void forceUpdateRange();
 
     void updateAxisTicks(float min, float max);
+
+    void syncPhaseAmplitudePlaneDrawers();
+
+    void paintPhaseAmplitudePlaneLines();
+
+    bool hasVisiblePhaseAmplitudePlaneLines() const;
   };
 } // namespace ProGraphics
