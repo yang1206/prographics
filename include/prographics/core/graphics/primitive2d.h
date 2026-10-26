@@ -4,7 +4,11 @@
 #include <QOpenGLExtraFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
+#include <algorithm>
+#include <deque>
+#include <memory>
 #include <queue>
+#include <vector>
 
 namespace ProGraphics {
   /**
@@ -49,7 +53,8 @@ namespace ProGraphics {
 
     VertexBufferPool &operator=(const VertexBufferPool &) = delete;
 
-    std::vector<QOpenGLBuffer> m_buffers;
+    // 在尾部扩容时保持已借出缓冲区的地址有效。
+    std::deque<QOpenGLBuffer> m_buffers;
     std::queue<size_t> m_availableBuffers;
     static constexpr size_t INITIAL_POOL_SIZE = 32;
     static constexpr size_t GROWTH_FACTOR = 16;
@@ -130,7 +135,14 @@ namespace ProGraphics {
       GLenum primitiveType;
     };
 
+    struct DrawRange {
+      GLenum primitiveType;
+      GLint first;
+      GLsizei count;
+    };
+
     std::vector<BatchItem> m_items;
+    std::vector<DrawRange> m_drawRanges;
     QOpenGLBuffer m_batchVBO;
     QOpenGLVertexArrayObject m_batchVAO;
     Primitive2DStyle m_style;
@@ -212,6 +224,7 @@ namespace ProGraphics {
     bool isVisible() const { return m_visible; }
 
     void setColor(const QVector4D &color) {
+      if (m_color == color) return;
       m_color = color;
       markDirty();
     }
@@ -219,6 +232,11 @@ namespace ProGraphics {
     QVector4D color() const { return m_color; }
 
     void setStyle(const Primitive2DStyle &style) {
+      if (m_style.lineWidth == style.lineWidth && m_style.pointSize == style.pointSize &&
+          m_style.lineStyle == style.lineStyle && m_style.filled == style.filled &&
+          m_style.borderColor == style.borderColor && m_style.borderWidth == style.borderWidth) {
+        return;
+      }
       m_style = style;
       markDirty();
     }
@@ -276,7 +294,7 @@ namespace ProGraphics {
 
     void initializeInstanceBuffer();
 
-    void updateInstanceData(const std::vector<Transform2D> &transforms);
+    bool updateInstanceData(const std::vector<Transform2D> &transforms);
 
     QOpenGLVertexArrayObject m_vao;
     QOpenGLBuffer *m_managedVBO = nullptr;
@@ -297,6 +315,15 @@ namespace ProGraphics {
 
     QOpenGLBuffer m_instanceVBO; // 实例化缓冲
     bool m_instancedMode = false; // 是否启用实例化模式
+
+    // 2D 变换只需平移、缩放和旋转，不必为每个实例构造完整的 4x4 矩阵。
+    struct InstanceData {
+      float positionScale[4];
+      float rotation[2];
+      float color[4];
+    };
+    static_assert(sizeof(float) == 4 && sizeof(InstanceData) == 40);
+    std::vector<InstanceData> m_instanceData;
 
     friend class Primitive2DBatch;
   };

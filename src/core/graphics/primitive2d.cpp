@@ -1,5 +1,9 @@
 ﻿#define GL_SILENCE_DEPRECATION
 #include "prographics/core/graphics/primitive2d.h"
+#include <QDebug>
+#include <cmath>
+#include <cstddef>
+#include <limits>
 
 namespace ProGraphics {
   QOpenGLBuffer *VertexBufferPool::acquire() {
@@ -7,8 +11,6 @@ namespace ProGraphics {
       // 扩展缓冲池
       size_t oldSize = m_buffers.size();
       size_t newSize = oldSize == 0 ? INITIAL_POOL_SIZE : oldSize + GROWTH_FACTOR;
-      m_buffers.reserve(newSize);
-
       for (size_t i = oldSize; i < newSize; ++i) {
         m_buffers.emplace_back(QOpenGLBuffer::VertexBuffer);
         m_buffers.back().create();
@@ -56,8 +58,9 @@ namespace ProGraphics {
            #version 410 core
             layout (location = 0) in vec3 aPos;
             layout (location = 1) in vec4 aColor;
-            layout (location = 2) in mat4 instanceMatrix;  // 实例化矩阵
-            layout (location = 6) in vec4 instanceColor;
+            layout (location = 2) in vec4 instancePositionScale;
+            layout (location = 3) in vec2 instanceRotation;
+            layout (location = 4) in vec4 instanceColor;
 
             uniform mat4 projection;
             uniform mat4 view;
@@ -68,8 +71,15 @@ namespace ProGraphics {
             out vec4 vertexColor;
 
             void main() {
-                mat4 modelMatrix = useInstancing ? instanceMatrix : mat4(1.0);
-                gl_Position = projection * view * modelMatrix * vec4(aPos, 1.0);
+                vec3 position = aPos;
+                if (useInstancing) {
+                    vec2 scaled = aPos.xy * instancePositionScale.zw;
+                    position.xy = vec2(
+                        instanceRotation.x * scaled.x - instanceRotation.y * scaled.y,
+                        instanceRotation.y * scaled.x + instanceRotation.x * scaled.y
+                    ) + instancePositionScale.xy;
+                }
+                gl_Position = projection * view * vec4(position, 1.0);
                 gl_PointSize = pointSize;
                 vec4 c = useInstancing ? instanceColor : aColor;
                 if (uAlphaReplace >= 0.0) {
@@ -156,49 +166,51 @@ namespace ProGraphics {
     // 创建实例化缓冲
     if (!m_instanceVBO.isCreated()) {
       m_instanceVBO.create();
+      m_instanceVBO.setUsagePattern(QOpenGLBuffer::StreamDraw);
     }
     m_instanceVBO.bind();
 
-    // 设置实例化矩阵属性
-    for (int i = 0; i < 4; ++i) {
-      glEnableVertexAttribArray(2 + i);
-      glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(QMatrix4x4) + sizeof(QVector4D),
-                            reinterpret_cast<void *>(sizeof(float) * 4 * i));
-      glVertexAttribDivisor(2 + i, 1);
-    }
-
-    glEnableVertexAttribArray(6);
-    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(QMatrix4x4) + sizeof(QVector4D),
-                          reinterpret_cast<void *>(sizeof(QMatrix4x4)));
-    glVertexAttribDivisor(6, 1);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                          reinterpret_cast<void *>(offsetof(InstanceData, positionScale)));
+    glVertexAttribDivisor(2, 1);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                          reinterpret_cast<void *>(offsetof(InstanceData, rotation)));
+    glVertexAttribDivisor(3, 1);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                          reinterpret_cast<void *>(offsetof(InstanceData, color)));
+    glVertexAttribDivisor(4, 1);
 
     m_instanceVBO.release();
     m_vao.release();
     m_instancedMode = true;
   }
 
-  void Primitive2D::updateInstanceData(const std::vector<Transform2D> &transforms) {
-    if (!m_instancedMode) return;
+  bool Primitive2D::updateInstanceData(const std::vector<Transform2D> &transforms) {
+    if (!m_instancedMode) return false;
 
-    // 创建包含矩阵和颜色的数据
-    struct InstanceData {
-      QMatrix4x4 matrix;
-      QVector4D color;
-    };
-
-    std::vector<InstanceData> instanceData;
-    instanceData.reserve(transforms.size());
-
-    for (const auto &transform: transforms) {
-      InstanceData data;
-      data.matrix = transform.getMatrix();
-      data.color = transform.color;
-      instanceData.push_back(data);
+    m_instanceData.resize(transforms.size());
+    for (size_t i = 0; i < transforms.size(); ++i) {
+      const auto &transform = transforms[i];
+      auto &data = m_instanceData[i];
+      data.positionScale[0] = transform.position.x();
+      data.positionScale[1] = transform.position.y();
+      data.positionScale[2] = transform.scale.x();
+      data.positionScale[3] = transform.scale.y();
+      data.rotation[0] = transform.rotation == 0.0f ? 1.0f : std::cos(transform.rotation);
+      data.rotation[1] = transform.rotation == 0.0f ? 0.0f : std::sin(transform.rotation);
+      data.color[0] = transform.color.x();
+      data.color[1] = transform.color.y();
+      data.color[2] = transform.color.z();
+      data.color[3] = transform.color.w();
     }
 
-    m_instanceVBO.bind();
-    m_instanceVBO.allocate(instanceData.data(), instanceData.size() * sizeof(InstanceData));
+    if (!m_instanceVBO.bind()) return false;
+    m_instanceVBO.allocate(m_instanceData.data(), static_cast<int>(m_instanceData.size() * sizeof(InstanceData)));
     m_instanceVBO.release();
+    return true;
   }
 
   void Primitive2D::drawInstanced(const QMatrix4x4 &projection, const QMatrix4x4 &view,
@@ -206,12 +218,17 @@ namespace ProGraphics {
                                   float alphaReplace,
                                   bool uploadInstanceData) {
     if (!m_visible || !s_shaderProgram || transforms.empty()) return;
+    if (transforms.size() > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(InstanceData)) {
+      qWarning() << "2D 实例缓冲区超出支持范围:" << transforms.size();
+      return;
+    }
 
     if (!m_instancedMode) {
       initializeInstanceBuffer();
+      uploadInstanceData = true;
     }
-    if (uploadInstanceData) {
-      updateInstanceData(transforms);
+    if (uploadInstanceData && !updateInstanceData(transforms)) {
+      return;
     }
 
     s_shaderProgram->bind();
@@ -222,7 +239,9 @@ namespace ProGraphics {
     s_shaderProgram->setUniformValue("uAlphaReplace", alphaReplace);
 
     m_vao.bind();
-    glDrawArraysInstanced(getPrimitiveType(), 0, m_vertexCount, transforms.size());
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glDrawArraysInstanced(getPrimitiveType(), 0, m_vertexCount, static_cast<GLsizei>(transforms.size()));
+    glDisable(GL_PROGRAM_POINT_SIZE);
     m_vao.release();
     s_shaderProgram->setUniformValue("useInstancing", false);
     s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
@@ -257,10 +276,9 @@ namespace ProGraphics {
     m_vao.bind();
 
     // 使用缓冲池获取VBO
-    if (m_managedVBO) {
-      VertexBufferPool::getInstance().release(m_managedVBO);
+    if (!m_managedVBO) {
+      m_managedVBO = VertexBufferPool::getInstance().acquire();
     }
-    m_managedVBO = VertexBufferPool::getInstance().acquire();
 
     m_managedVBO->bind();
     m_managedVBO->allocate(vertices.data(), vertices.size() * sizeof(float));
@@ -324,6 +342,7 @@ namespace ProGraphics {
   // 批量渲染实现
   void Primitive2DBatch::begin() {
     m_items.clear();
+    m_drawRanges.clear();
     // 启用深度测试但禁用深度写入，解决透明度问题
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -343,6 +362,7 @@ namespace ProGraphics {
   }
 
   void Primitive2DBatch::end() {
+    m_drawRanges.clear();
     // 计算总顶点数
     size_t totalVertices = 0;
     for (const auto &item: m_items) {
@@ -352,9 +372,24 @@ namespace ProGraphics {
     // 合并所有顶点数据
     std::vector<float> batchedVertices;
     batchedVertices.reserve(totalVertices);
+    GLint first = 0;
     for (const auto &item: m_items) {
       batchedVertices.insert(batchedVertices.end(), item.vertices.begin(),
                              item.vertices.end());
+      // 只合并相邻、完整的独立图元，保持透明叠色顺序；条带和环不能跨条目连接。
+      const int groupSize = item.primitiveType == GL_POINTS ? 1 :
+          item.primitiveType == GL_LINES && m_style.lineStyle == Qt::SolidLine ? 2 :
+          item.primitiveType == GL_TRIANGLES ? 3 : 0;
+      if (item.vertexCount > 0) {
+        if (groupSize && item.vertexCount % groupSize == 0 && !m_drawRanges.empty() &&
+            m_drawRanges.back().primitiveType == item.primitiveType &&
+            m_drawRanges.back().count % groupSize == 0) {
+          m_drawRanges.back().count += item.vertexCount;
+        } else {
+          m_drawRanges.push_back({item.primitiveType, first, item.vertexCount});
+        }
+      }
+      first += item.vertexCount;
     }
 
     // 创建并填充VBO
@@ -386,7 +421,7 @@ namespace ProGraphics {
 
   void Primitive2DBatch::draw(const QMatrix4x4 &projection,
                               const QMatrix4x4 &view) {
-    if (m_items.empty())
+    if (m_drawRanges.empty())
       return;
 
     // 确保正确的深度测试和混合设置
@@ -403,8 +438,7 @@ namespace ProGraphics {
     Primitive2D::s_shaderProgram->setUniformValue("uAlphaReplace", -1.0f);
 
     m_batchVAO.bind();
-    size_t offset = 0;
-    for (const auto &item: m_items) {
+    for (const auto &item: m_drawRanges) {
       // 设置线宽（如果是线段）
       if (item.primitiveType == GL_LINES) {
         if (m_style.lineStyle != Qt::SolidLine) {
@@ -431,8 +465,7 @@ namespace ProGraphics {
         glLineWidth(m_style.lineWidth);
       }
 
-      glDrawArrays(item.primitiveType, offset, item.vertexCount);
-      offset += item.vertexCount;
+      glDrawArrays(item.primitiveType, item.first, item.count);
 
       // 恢复默认线宽
       if (item.primitiveType == GL_LINES) {
@@ -515,6 +548,7 @@ namespace ProGraphics {
   }
 
   void Line2D::setPoints(const QVector3D &start, const QVector3D &end) {
+    if (m_start == start && m_end == end) return;
     m_start = start;
     m_end = end;
     markDirty();

@@ -32,6 +32,8 @@ private slots:
 
     void onTestDialog();
 
+    void onStressTest();
+
 private:
     void setupUI();
 

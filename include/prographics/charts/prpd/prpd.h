@@ -3,6 +3,7 @@
 #include "prographics/charts/coordinate/coordinate2d.h"
 #include "prographics/prographics_export.h"
 #include "prographics/utils/utils.h"
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -152,7 +153,7 @@ namespace ProGraphics {
 
         /**
          * @brief 添加一个周期的放电数据
-         * @param cycleData 幅值数组，长度必须等于 PHASE_POINTS
+         * @param cycleData 幅值数组，长度必须等于当前配置的相位采样点数
          */
         void addCycleData(const std::vector<float> &cycleData);
 
@@ -163,6 +164,7 @@ namespace ProGraphics {
 
         /**
          * @brief 设置相位采样点数
+         * @param phasePoint 正整数；点数改变时清空旧周期数据，保持量程及暂停配置
          */
         void setPhasePoint(int phasePoint);
 
@@ -216,7 +218,7 @@ namespace ProGraphics {
             m_cycleBuffer.binIndices.clear();
             m_cycleBuffer.currentIndex = 0;
             m_cycleBuffer.isFull = false;
-            m_renderBatchMap.clear();
+            m_pointTransforms.clear();
             clearFrequencyTable();
 
             float displayMin, displayMax;
@@ -226,6 +228,7 @@ namespace ProGraphics {
             } else {
                 displayMin = m_configuredMin;
                 displayMax = m_configuredMax;
+                m_dynamicRange.reset();
                 m_dynamicRange.setInitialRange(displayMin, displayMax);
             }
 
@@ -298,34 +301,8 @@ namespace ProGraphics {
     private:
         // ==================== 内部数据结构 ====================
 
-        struct PairHash {
-            size_t operator()(const std::pair<int, int> &p) const {
-                return std::hash<int>()(p.first) ^ (std::hash<int>()(p.second) << 1);
-            }
-        };
-
-        struct RenderBatch {
-            std::unordered_map<std::pair<int, int>, Transform2D, PairHash> pointMap;
-            int frequency;
-            mutable std::vector<Transform2D> transforms;
-            mutable bool needsRebuild = true;
-
-            void rebuildTransforms(const QVector4D &color) const {
-                if (!needsRebuild)
-                    return;
-                transforms.clear();
-                transforms.reserve(pointMap.size());
-                for (const auto &[_, transform]: pointMap) {
-                    Transform2D t = transform;
-                    t.color = color;
-                    transforms.push_back(t);
-                }
-                needsRebuild = false;
-            }
-        };
-
         using BinIndex = uint16_t;
-        using FrequencyTable = std::array<std::array<int, PRPDConstants::AMPLITUDE_BINS>, PRPDConstants::PHASE_POINTS>;
+        using FrequencyTable = std::vector<std::array<int, PRPDConstants::AMPLITUDE_BINS>>;
 
         struct CycleBuffer {
             std::vector<std::vector<float> > data;
@@ -337,9 +314,22 @@ namespace ProGraphics {
         // ==================== 成员变量 ====================
 
         CycleBuffer m_cycleBuffer;
-        FrequencyTable m_frequencyTable;
-        std::unordered_map<int, RenderBatch> m_renderBatchMap;
+        FrequencyTable m_frequencyTable = FrequencyTable(PRPDConstants::PHASE_POINTS);
+        std::vector<size_t> m_activeCells;
+        std::vector<size_t> m_activeCellPositions;
+        std::array<int, PRPDConstants::MAX_CYCLES + 1> m_frequencyCounts{};
         int m_maxFrequency = 0;
+        float m_frequencyMin = -75.0f;
+        float m_frequencyMax = -30.0f;
+        bool m_frequencyTableDirty = false;
+
+        std::vector<Transform2D> m_pointTransforms;
+        std::vector<float> m_phasePositions;
+        std::array<float, PRPDConstants::AMPLITUDE_BINS> m_binPositions{};
+        std::array<QVector4D, PRPDConstants::MAX_CYCLES + 1> m_frequencyColors;
+        int m_colorMaxFrequency = -1;
+        bool m_pointCoordinatesDirty = true;
+        bool m_pointDataDirty = true;
 
         std::unique_ptr<Point2D> m_pointRenderer;
 
@@ -385,21 +375,17 @@ namespace ProGraphics {
 
         float amplitudeFromWidgetPos(const QPoint &pos) const;
 
-        void updatePointTransformsFromFrequencyTable();
-
         void rebuildFrequencyTable();
 
         void clearFrequencyTable();
 
-        void removePointFromBatch(int phaseIdx, BinIndex binIdx, int frequency);
-
-        void addPointToBatch(int phaseIdx, BinIndex binIdx, int frequency);
+        void changeFrequency(int phaseIdx, BinIndex binIdx, int delta);
 
         float mapPhaseToGL(float phase) const;
 
         float mapAmplitudeToGL(float amplitude) const;
 
-        BinIndex getAmplitudeBinIndex(float amplitude) const;
+        static BinIndex getAmplitudeBinIndex(float amplitude, float displayMin, float displayMax);
 
         float getBinCenterAmplitude(BinIndex binIndex) const;
 

@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "stress_test_dialog.h"
 #include <QSplitter>
 #include <QScrollArea>
 #include <QFrame>
@@ -309,13 +310,16 @@ void MainWindow::setupUI() {
     });
 
     // ==================== 测试按钮 ====================
-    QGroupBox *testGroup = new QGroupBox("弹窗测试");
+    QGroupBox *testGroup = new QGroupBox("调试工具");
     QVBoxLayout *testLayout = new QVBoxLayout(testGroup);
 
     QPushButton *testDialogBtn = new QPushButton("测试 QDialog");
     testLayout->addWidget(testDialogBtn);
 
     connect(testDialogBtn, &QPushButton::clicked, this, &MainWindow::onTestDialog);
+    auto* stressTestBtn = new QPushButton("性能压力测试");
+    testLayout->addWidget(stressTestBtn);
+    connect(stressTestBtn, &QPushButton::clicked, this, &MainWindow::onStressTest);
 
     // ==================== 状态显示 ====================
     QGroupBox *statusGroup = new QGroupBox("当前状态");
@@ -619,5 +623,34 @@ void MainWindow::onTestDialog() {
 
     dialog->exec();
     delete dialog;
+}
+
+void MainWindow::onStressTest() {
+    // 暂停原示例的数据和动画，避免它们混入压测进程的资源占用。
+    const bool statusActive = m_statusTimer->isActive();
+    const bool batchActive = m_batchTimer->isActive();
+    const bool prpdPaused = m_prpdChart->isPaused();
+    const bool prpsPaused = m_prpsChart->isPaused();
+    const bool prpdAccepts = m_prpdChart->isAcceptingData();
+    const bool prpsAccepts = m_prpsChart->isAcceptingData();
+    m_statusTimer->stop();
+    m_batchTimer->stop();
+    m_prpdChart->pause(true);
+    m_prpsChart->pause(true);
+    {
+        StressTestDialog dialog(this);
+        dialog.exec();
+    }
+    const auto restore = [](auto* chart, bool paused, bool accepts) {
+        if (paused) chart->pause(!accepts);
+        else {
+            chart->resume();
+            chart->setAcceptData(accepts);
+        }
+    };
+    restore(m_prpdChart, prpdPaused, prpdAccepts);
+    restore(m_prpsChart, prpsPaused, prpsAccepts);
+    if (statusActive) m_statusTimer->start();
+    if (batchActive) m_batchTimer->start();
 }
 

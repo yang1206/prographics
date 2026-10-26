@@ -3,6 +3,7 @@
 #include "prographics/charts/coordinate/grid.h"
 #include "prographics/charts/base/gl_widget.h"
 #include <QMouseEvent>
+#include "core/renderer/coordinate_text_layer_p.h"
 
 namespace ProGraphics {
   // 定义着色器源代码
@@ -61,6 +62,7 @@ void main() {
 
   Coordinate3D::~Coordinate3D() {
     makeCurrent();
+    m_textLayer.reset();
     m_axisSystem.reset();
     m_gridSystem.reset();
     doneCurrent();
@@ -118,44 +120,49 @@ void main() {
 
     m_tickSystem = std::make_unique<AxisTicks>();
     m_tickSystem->initialize();
+    m_textLayer = std::make_unique<CoordinateTextLayer>(*this);
 
     setConfig(m_config);
   }
 
   void Coordinate3D::paintGLObjects() {
-    glClearColor(m_backgroundcolor.redF(), m_backgroundcolor.greenF(), m_backgroundcolor.blueF(),
-                 m_backgroundcolor.alphaF());
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_BLEND);
-    m_program->bind();
-    m_program->setUniformValue("projection", m_camera.getProjectionMatrix());
-    m_program->setUniformValue("view", m_camera.getViewMatrix());
-    QMatrix4x4 defaultModel;
-    m_program->setUniformValue("model", defaultModel);
     const QMatrix4x4 model = m_camera.getViewMatrix();
     const QMatrix4x4 projection = m_camera.getProjectionMatrix();
-
-    if (m_config.axis.enabled) {
-      m_axisSystem->render(projection, model);
-    }
-    if (m_config.grid.enabled) {
-      m_gridSystem->render(projection, model);
-    }
-
-    m_program->release();
-
-    // QPainter 渲染文本
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
-    if (m_nameSystem) {
-      m_nameSystem->render(painter, model, projection, width(), height());
-    }
-
-    if (m_tickSystem) {
-      m_tickSystem->render(painter, model, projection, width(), height());
+    {
+      auto timing = measureRenderStage(RenderStage::Geometry);
+      glDisable(GL_SCISSOR_TEST);
+      glClearColor(m_backgroundcolor.redF(), m_backgroundcolor.greenF(), m_backgroundcolor.blueF(),
+                   m_backgroundcolor.alphaF());
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      if (renderOptions().geometry) {
+        glEnable(GL_BLEND);
+        m_program->bind();
+        m_program->setUniformValue("projection", projection);
+        m_program->setUniformValue("view", model);
+        m_program->setUniformValue("model", QMatrix4x4());
+        if (m_config.axis.enabled) m_axisSystem->render(projection, model);
+        if (m_config.grid.enabled) m_gridSystem->render(projection, model);
+        m_program->release();
+      }
     }
 
-    painter.end();
+    if (renderOptions().text) {
+      auto timing = measureRenderStage(RenderStage::Text);
+      const auto paint = [&](QPainter& painter) {
+        if (m_nameSystem) m_nameSystem->render(painter, model, projection, width(), height());
+        if (m_tickSystem) m_tickSystem->render(painter, model, projection, width(), height());
+      };
+      bool rebuilt = false;
+      const bool cached = renderOptions().cachedText && m_textLayer &&
+          m_textLayer->render(*this, model, projection, paint, rebuilt);
+      recordTextCacheState(cached, rebuilt);
+      if (!cached) {
+        // 显式关闭缓存或纹理不可用时，使用原有文字路径。
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        paint(painter);
+      }
+    }
   }
 
   void Coordinate3D::resizeGL(int w, int h) {
@@ -655,6 +662,7 @@ void main() {
   void Coordinate3D::updateNameSystem() {
     if (!m_nameSystem)
       return;
+    if (m_textLayer) m_textLayer->invalidate();
 
     AxisName::Config nameConfig;
     nameConfig.size = m_config.size;
@@ -680,6 +688,7 @@ void main() {
   void Coordinate3D::updateTickSystem() {
     if (!m_tickSystem)
       return;
+    if (m_textLayer) m_textLayer->invalidate();
 
     AxisTicks::Config tickConfig;
     tickConfig.size = m_config.size;

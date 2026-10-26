@@ -1,9 +1,13 @@
 #include "prographics/charts/prps/prps.h"
+#include "core/renderer/prps_renderer_p.h"
+#include <QHideEvent>
+#include <QShowEvent>
 #include <algorithm>
 #include <random>
 #include "prographics/utils/utils.h"
 
 namespace ProGraphics {
+static_assert(PRPSConstants::MAX_LINE_GROUPS == PRPSRenderer::SlotCount);
 
 // ==================== UpdateThread 实现 ====================
 
@@ -30,12 +34,17 @@ void UpdateThread::setPaused(bool paused) {
 }
 
 void UpdateThread::setUpdateInterval(int intervalMs) {
+    if (intervalMs <= 0) {
+        qWarning() << "动画更新间隔必须大于 0:" << intervalMs;
+        return;
+    }
     QMutexLocker locker(&m_mutex);
     m_updateInterval = intervalMs;
 }
 
 void UpdateThread::run() {
     while (true) {
+        int intervalMs;
         {
             QMutexLocker locker(&m_mutex);
             if (m_abort) {
@@ -45,15 +54,16 @@ void UpdateThread::run() {
                 m_condition.wait(&m_mutex);
                 continue;
             }
+            intervalMs = m_updateInterval;
         }
         emit updateAnimation();
-        msleep(m_updateInterval);
+        msleep(static_cast<unsigned long>(intervalMs));
     }
 }
 
 // ==================== PRPSChart 实现 ====================
 
-PRPSChart::PRPSChart(QWidget* parent) : Coordinate3D(parent), m_updateThread(this) {
+PRPSChart::PRPSChart(QWidget* parent) : Coordinate3D(parent) {
     setSize(PRPSConstants::GL_AXIS_LENGTH);
 
     setAxisName('x', "相位", "°");
@@ -68,27 +78,31 @@ PRPSChart::PRPSChart(QWidget* parent) : Coordinate3D(parent), m_updateThread(thi
     updateAxisTicks(m_fixedMin, m_fixedMax);
     setAxisVisible('z', false);
 
-    connect(&m_updateThread, &UpdateThread::updateAnimation,
-            this, &PRPSChart::updatePRPSAnimation, Qt::QueuedConnection);
-
-    m_updateThread.start();
+    m_animationTimer.setInterval(20);
+    m_animationTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_animationTimer, &QTimer::timeout, this, &PRPSChart::updatePRPSAnimation);
+    m_recycledGroups.reserve(PRPSConstants::MAX_LINE_GROUPS);
 }
 
 PRPSChart::~PRPSChart() {
-    m_updateThread.stop();
+    m_animationTimer.stop();
     makeCurrent();
+    m_pulseRenderer.reset();
     m_phaseAmplitudePlaneDrawers.clear();
     m_lineGroups.clear();
+    m_recycledGroups.clear();
     doneCurrent();
 }
 
 void PRPSChart::resetData() {
+    m_animationTimer.stop();
+    m_animationClock.invalidate();
     makeCurrent();
+    m_pulseRenderer.reset();
     m_lineGroups.clear();
+    m_recycledGroups.clear();
     doneCurrent();
-
-    m_currentCycles.clear();
-    m_threshold = 0.1f;
+    m_nextRenderSlot = 0;
 
     float displayMin;
     float displayMax;
@@ -106,16 +120,51 @@ void PRPSChart::resetData() {
     update();
 }
 
+void PRPSChart::setUpdateInterval(int intervalMs) {
+    if (intervalMs <= 0) {
+        qWarning() << "PRPS 动画更新间隔必须大于 0:" << intervalMs;
+        return;
+    }
+    m_animationTimer.setInterval(intervalMs);
+}
+
+void PRPSChart::showEvent(QShowEvent* event) {
+    Coordinate3D::showEvent(event);
+    m_animationVisible = true;
+    updateAnimationState();
+}
+
+void PRPSChart::hideEvent(QHideEvent* event) {
+    m_animationVisible = false;
+    m_animationTimer.stop();
+    m_animationClock.invalidate();
+    Coordinate3D::hideEvent(event);
+}
+
+void PRPSChart::updateAnimationState() {
+    const bool shouldRun = m_animationVisible && isVisible() && !m_paused && !m_lineGroups.empty();
+    if (shouldRun && !m_animationTimer.isActive()) {
+        // 暂停或隐藏期间不累计动画时间，恢复时从当前画面继续。
+        m_animationClock.start();
+        m_animationTimer.start();
+    } else if (!shouldRun) {
+        m_animationTimer.stop();
+        m_animationClock.invalidate();
+    }
+}
+
 void PRPSChart::initializeGLObjects() {
     Coordinate3D::initializeGLObjects();
+    m_pulseRenderer.reset();
+    for (auto& group : m_lineGroups) group->instanceBufferDirty = true;
     syncPhaseAmplitudePlaneDrawers();
 }
 
 void PRPSChart::paintGLObjects() {
     Coordinate3D::paintGLObjects();
 
-    const bool drawPulses = !m_lineGroups.empty();
-    const bool drawPlaneLines = hasVisiblePhaseAmplitudePlaneLines();
+    const bool drawPulses = renderOptions().data && !m_lineGroups.empty();
+    const bool drawPlaneLines = renderOptions().referenceLines && hasVisiblePhaseAmplitudePlaneLines();
 
     if (!drawPulses && !drawPlaneLines) {
         return;
@@ -126,26 +175,39 @@ void PRPSChart::paintGLObjects() {
     glLineWidth(2.0f);
 
     if (drawPulses) {
+        auto timing = measureRenderStage(RenderStage::Data);
+        const int maximumCapacity = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints)
+            ? m_displayLineCount : m_phasePoints;
+        int requiredCapacity = 0;
         for (const auto& group : m_lineGroups) {
-            if (group->instancedLine && group->isActive) {
-                QMatrix4x4 model;
-                model.translate(0, 0, group->zPosition);
-
-                const float alphaRep =
-                    (group->zPosition < 2.0f) ? (group->zPosition / 2.0f) : -1.0f;
-
-                group->instancedLine->drawInstanced(
-                    camera().getProjectionMatrix(),
-                    camera().getViewMatrix() * model,
-                    group->transforms,
-                    alphaRep,
-                    group->instanceBufferDirty);
-                group->instanceBufferDirty = false;
+            requiredCapacity = std::max(requiredCapacity, static_cast<int>(group->transforms.size()));
+        }
+        if (requiredCapacity > 0) {
+            if (!m_pulseRenderer) m_pulseRenderer = std::make_unique<PRPSRenderer>();
+            const int previousCapacity = m_pulseRenderer->rowCapacity();
+            int capacity = previousCapacity;
+            if (capacity < requiredCapacity || capacity > maximumCapacity) {
+                // 按实际可见竖线数扩容，避免稀疏周期也提交完整相位数的填充实例。
+                capacity = std::min(maximumCapacity,
+                    std::max(requiredCapacity, std::max(1, previousCapacity) * 2));
+            }
+            const bool capacityChanged = previousCapacity != capacity;
+            if (m_pulseRenderer->setRowCapacity(capacity)) {
+                std::array<float, PRPSRenderer::SlotCount> zPositions{};
+                for (const auto& group : m_lineGroups) {
+                    zPositions[group->renderSlot] = group->zPosition;
+                    if (capacityChanged || group->instanceBufferDirty) {
+                        group->instanceBufferDirty = !m_pulseRenderer->uploadRow(group->renderSlot, group->transforms);
+                    }
+                }
+                m_pulseRenderer->draw(camera().getProjectionMatrix(), camera().getViewMatrix(), zPositions,
+                                      m_lineGroups.front()->renderSlot, static_cast<int>(m_lineGroups.size()));
             }
         }
     }
 
     if (drawPlaneLines) {
+        auto timing = measureRenderStage(RenderStage::ReferenceLines);
         paintPhaseAmplitudePlaneLines();
     }
 
@@ -243,10 +305,6 @@ void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
         return;
     }
 
-    if (m_lineGroups.size() >= PRPSConstants::MAX_LINE_GROUPS) {
-        m_lineGroups.erase(m_lineGroups.begin());
-    }
-
     bool rangeChanged = false;
     switch (m_rangeMode) {
         case RangeMode::Fixed:
@@ -263,9 +321,12 @@ void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
         recalculateLineGroups();
     }
 
-    m_currentCycles.push_back(cycleData);
-    processCurrentCycles();
-    m_currentCycles.clear();
+    processCycle(cycleData);
+    updateAnimationState();
+    if (m_paused) {
+        // 允许暂停时接收数据的情况下，也需要显示新增周期。
+        update();
+    }
 }
 
 void PRPSChart::setDisplayLineCount(int count) {
@@ -326,33 +387,46 @@ void PRPSChart::buildLineTransformsFromCycle(const std::vector<float>& cycleData
     }
 }
 
-void PRPSChart::processCurrentCycles() {
-    makeCurrent();
+void PRPSChart::processCycle(const std::vector<float>& cycleData) {
+    std::unique_ptr<LineGroup> newGroup;
+    if (m_lineGroups.size() >= PRPSConstants::MAX_LINE_GROUPS) {
+        newGroup = std::move(m_lineGroups.front());
+        m_lineGroups.pop_front();
+    } else if (!m_recycledGroups.empty()) {
+        newGroup = std::move(m_recycledGroups.back());
+        m_recycledGroups.pop_back();
+    } else {
+        newGroup = std::make_unique<LineGroup>();
+    }
 
-    auto newGroup = std::make_unique<LineGroup>();
-    const auto& cycleData = m_currentCycles.front();
-    newGroup->amplitudes  = cycleData;
-
-    newGroup->instancedLine = std::make_unique<Line2D>(
-        QVector3D(0.0f, 0.0f, 0.0f),
-        QVector3D(0.0f, 1.0f, 0.0f),
-        QVector4D(1.0f, 1.0f, 1.0f, 1.0f));
+    newGroup->zPosition = PRPSConstants::MAX_Z_POSITION;
+    newGroup->isActive = true;
+    newGroup->instanceBufferDirty = true;
+    newGroup->renderSlot = m_nextRenderSlot;
+    m_nextRenderSlot = (m_nextRenderSlot + 1) % PRPSRenderer::SlotCount;
+    newGroup->amplitudes = cycleData;
 
     const int cap = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints) ? m_displayLineCount : m_phasePoints;
     newGroup->transforms.reserve(static_cast<size_t>(cap));
 
     buildLineTransformsFromCycle(cycleData, newGroup->transforms);
 
-    newGroup->instancedLine->initialize();
     m_lineGroups.push_back(std::move(newGroup));
-    doneCurrent();
 }
 
 void PRPSChart::updatePRPSAnimation() {
+    if (m_paused || !m_animationVisible || !isVisible() || m_lineGroups.empty()) {
+        updateAnimationState();
+        return;
+    }
+
+    const float displacement = m_prpsScrollSpeed *
+        static_cast<float>(m_animationClock.nsecsElapsed()) / 1000000000.0f;
+    m_animationClock.start();
     bool needCleanup = false;
 
     for (auto& group : m_lineGroups) {
-        group->zPosition -= m_prpsAnimationSpeed;
+        group->zPosition -= displacement;
 
         if (group->zPosition <= PRPSConstants::MIN_Z_POSITION) {
             group->isActive = false;
@@ -364,22 +438,20 @@ void PRPSChart::updatePRPSAnimation() {
         cleanupInactiveGroups();
     }
 
+    updateAnimationState();
     update();
 }
 
 void PRPSChart::cleanupInactiveGroups() {
-    makeCurrent();
-
-    auto it = std::remove_if(m_lineGroups.begin(), m_lineGroups.end(),
-        [](const std::unique_ptr<LineGroup>& group) {
-            return !group->isActive;
-        });
-
-    if (it != m_lineGroups.end()) {
-        m_lineGroups.erase(it, m_lineGroups.end());
+    for (auto it = m_lineGroups.begin(); it != m_lineGroups.end();) {
+        if (!(*it)->isActive) {
+            // 保留 CPU 数据容量供下一个周期复用，GPU 槽由环形批量渲染器管理。
+            m_recycledGroups.push_back(std::move(*it));
+            it = m_lineGroups.erase(it);
+        } else {
+            ++it;
+        }
     }
-
-    doneCurrent();
 }
 
 // ==================== 量程设置 API 实现 ====================
@@ -504,7 +576,15 @@ void PRPSChart::setPhaseRange(float min, float max) {
 }
 
 void PRPSChart::setPhasePoint(int phasePoint) {
+    if (phasePoint <= 0) {
+        qWarning() << "PRPS 相位采样点数必须大于 0:" << phasePoint;
+        return;
+    }
+    if (phasePoint == m_phasePoints) {
+        return;
+    }
     m_phasePoints = phasePoint;
+    resetData();
 }
 
 float PRPSChart::mapPhaseToGL(float phase) const {
@@ -557,8 +637,6 @@ float PRPSChart::mapGLToAmplitude(float glY) const {
 }
 
 void PRPSChart::recalculateLineGroups() {
-    makeCurrent();
-
     const int cap = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints) ? m_displayLineCount : m_phasePoints;
 
     for (auto& group : m_lineGroups) {
@@ -568,7 +646,6 @@ void PRPSChart::recalculateLineGroups() {
         group->instanceBufferDirty = true;
     }
 
-    doneCurrent();
     update();
 }
 
@@ -576,14 +653,14 @@ void PRPSChart::recalculateLineGroups() {
 
 void PRPSChart::pause(bool blockNewData) {
     m_paused = true;
-    m_updateThread.setPaused(true);
     m_acceptData = !blockNewData;
+    updateAnimationState();
 }
 
 void PRPSChart::resume() {
     m_paused = false;
-    m_updateThread.setPaused(false);
     m_acceptData = true;
+    updateAnimationState();
 }
 
 void PRPSChart::togglePause() {

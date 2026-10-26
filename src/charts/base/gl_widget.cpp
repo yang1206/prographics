@@ -58,6 +58,7 @@ namespace ProGraphics {
     }
 
     void BaseGLWidget::paintGL() {
+        if (m_renderProfiling) m_frameRenderMetrics = {};
         glClear(GL_COLOR_BUFFER_BIT);
         paintGLObjects();
     }

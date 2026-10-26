@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include <QOpenGLWidget>
 #include <cmath>
+#include <limits>
 
 namespace ProGraphics {
 
@@ -23,9 +24,7 @@ PRPDChart::PRPDChart(QWidget* parent) : Coordinate2D(parent) {
     setAxisVisible('x', false);
     setAxisVisible('y', false);
 
-    for (auto& phaseRow : m_frequencyTable) {
-        std::fill(phaseRow.begin(), phaseRow.end(), 0);
-    }
+    clearFrequencyTable();
 }
 
 PRPDChart::~PRPDChart() {
@@ -49,32 +48,58 @@ void PRPDChart::initializeGLObjects() {
     pointStyle.pointSize = PRPDConstants::POINT_SIZE;
     m_pointRenderer->setStyle(pointStyle);
     m_pointRenderer->initialize();
+    m_pointDataDirty = true;
 
     m_cycleBuffer.data.reserve(PRPDConstants::MAX_CYCLES);
     m_cycleBuffer.binIndices.reserve(PRPDConstants::MAX_CYCLES);
-    m_renderBatchMap.reserve(100);
-
     syncAmplitudeLineDrawers();
 }
 
 void PRPDChart::paintGLObjects() {
+    if (m_frequencyTableDirty) {
+        auto timing = measureRenderStage(RenderStage::Data);
+        rebuildFrequencyTable();
+    }
     Coordinate2D::paintGLObjects();
 
-    if (m_pointRenderer && !m_renderBatchMap.empty()) {
-        for (auto& [freq, batch] : m_renderBatchMap) {
-            if (batch.pointMap.empty())
-                continue;
-
-            QVector4D color = calculateColor(batch.frequency);
-            batch.rebuildTransforms(color);
-
-            m_pointRenderer->setColor(color);
-            m_pointRenderer->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
-                                             batch.transforms);
+    if (renderOptions().data && m_pointRenderer && !m_activeCells.empty()) {
+        auto timing = measureRenderStage(RenderStage::Data);
+        const bool uploadInstanceData = m_pointDataDirty;
+        if (m_pointDataDirty) {
+            if (m_pointCoordinatesDirty) {
+                m_phasePositions.resize(static_cast<size_t>(m_phasePoints));
+                for (int i = 0; i < m_phasePoints; ++i) {
+                    const float phase = static_cast<float>(i) * (PRPDConstants::PHASE_MAX / m_phasePoints);
+                    m_phasePositions[static_cast<size_t>(i)] = mapPhaseToGL(phase);
+                }
+                for (BinIndex bin = 0; bin < PRPDConstants::AMPLITUDE_BINS; ++bin) {
+                    m_binPositions[bin] = mapAmplitudeToGL(getBinCenterAmplitude(bin));
+                }
+                m_pointCoordinatesDirty = false;
+            }
+            if (m_colorMaxFrequency != m_maxFrequency) {
+                for (int frequency = 1; frequency <= m_maxFrequency; ++frequency) {
+                    m_frequencyColors[frequency] = calculateColor(frequency);
+                }
+                m_colorMaxFrequency = m_maxFrequency;
+            }
+            m_pointTransforms.resize(m_activeCells.size());
+            for (size_t i = 0; i < m_activeCells.size(); ++i) {
+                const size_t cell = m_activeCells[i];
+                const size_t phase = cell / PRPDConstants::AMPLITUDE_BINS;
+                const size_t bin = cell % PRPDConstants::AMPLITUDE_BINS;
+                auto& transform = m_pointTransforms[i];
+                transform.position = QVector2D(m_phasePositions[phase], m_binPositions[bin]);
+                transform.color = m_frequencyColors[m_frequencyTable[phase][bin]];
+            }
         }
+        m_pointRenderer->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
+                                      m_pointTransforms, -1.0f, uploadInstanceData);
+        m_pointDataDirty = false;
     }
 
-    if (hasVisibleAmplitudeLines()) {
+    if (renderOptions().referenceLines && hasVisibleAmplitudeLines()) {
+        auto timing = measureRenderStage(RenderStage::ReferenceLines);
         paintAmplitudeLines();
     }
 }
@@ -183,103 +208,68 @@ void PRPDChart::addCycleData(const std::vector<float>& cycleData) {
             break;
     }
 
-    if (rangeChanged) {
-        auto [newDisplayMin, newDisplayMax] = m_dynamicRange.getDisplayRange();
+    const auto [newDisplayMin, newDisplayMax] = getCurrentRange();
+    if (rangeChanged || newDisplayMin != m_frequencyMin || newDisplayMax != m_frequencyMax) {
+        m_frequencyMin = newDisplayMin;
+        m_frequencyMax = newDisplayMax;
         updateAxisTicks(newDisplayMin, newDisplayMax);
-        rebuildFrequencyTable();
-        return;
+        // 同一绘制帧前多次变更量程时，只对最终保留的完整周期重分箱一次。
+        m_frequencyTableDirty = true;
     }
 
-    std::vector<BinIndex> currentBinIndices(m_phasePoints);
-    for (int i = 0; i < m_phasePoints; ++i) {
-        currentBinIndices[i] = getAmplitudeBinIndex(cycleData[i]);
+    const bool full = m_cycleBuffer.data.size() == PRPDConstants::MAX_CYCLES;
+    const size_t index = full ? static_cast<size_t>(m_cycleBuffer.currentIndex) : m_cycleBuffer.data.size();
+    if (!full) {
+        m_cycleBuffer.data.emplace_back();
+        m_cycleBuffer.binIndices.emplace_back(static_cast<size_t>(m_phasePoints));
     }
 
-    if (m_cycleBuffer.data.size() == PRPDConstants::MAX_CYCLES) {
-        const auto& oldestBinIndices = m_cycleBuffer.binIndices[m_cycleBuffer.currentIndex];
-
-        for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
-            BinIndex binIdx = oldestBinIndices[phaseIdx];
-            if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
-                int& freq = m_frequencyTable[phaseIdx][binIdx];
-                if (freq > 0) {
-                    int oldFreq = freq;
-                    freq--;
-                    removePointFromBatch(phaseIdx, binIdx, oldFreq);
-                    if (freq > 0) {
-                        addPointToBatch(phaseIdx, binIdx, freq);
-                    }
-                }
-            }
+    auto& bins = m_cycleBuffer.binIndices[index];
+    if (!m_frequencyTableDirty) {
+        for (int phase = 0; phase < m_phasePoints; ++phase) {
+            const BinIndex bin = getAmplitudeBinIndex(cycleData[phase], newDisplayMin, newDisplayMax);
+            // 满窗口中旧值与新值落在同一格时，统计及颜色完全不变。
+            if (full && bins[phase] == bin) continue;
+            if (full) changeFrequency(phase, bins[phase], -1);
+            changeFrequency(phase, bin, 1);
+            bins[phase] = bin;
         }
     }
-
-    if (m_cycleBuffer.data.size() < PRPDConstants::MAX_CYCLES) {
-        m_cycleBuffer.data.push_back(cycleData);
-        m_cycleBuffer.binIndices.push_back(currentBinIndices);
-    } else {
-        m_cycleBuffer.data[m_cycleBuffer.currentIndex]       = cycleData;
-        m_cycleBuffer.binIndices[m_cycleBuffer.currentIndex] = currentBinIndices;
+    m_cycleBuffer.data[index] = cycleData;
+    if (full) {
         m_cycleBuffer.currentIndex = (m_cycleBuffer.currentIndex + 1) % PRPDConstants::MAX_CYCLES;
         m_cycleBuffer.isFull       = true;
     }
 
-    for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
-        BinIndex binIdx = currentBinIndices[phaseIdx];
-        if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
-            int& freq    = m_frequencyTable[phaseIdx][binIdx];
-            int  oldFreq = freq;
-            freq++;
-
-            if (oldFreq > 0) {
-                removePointFromBatch(phaseIdx, binIdx, oldFreq);
-            }
-            addPointToBatch(phaseIdx, binIdx, freq);
-
-            if (freq > m_maxFrequency) {
-                m_maxFrequency = freq;
-            }
-        }
+    while (m_maxFrequency > 0 && m_frequencyCounts[m_maxFrequency] == 0) {
+        --m_maxFrequency;
     }
-
-    // NOTE: 每 10 个周期重新计算最大频次，确保准确性
-    static int cycleCount = 0;
-    cycleCount            = (cycleCount + 1) % 10;
-    if (cycleCount == 0) {
-        m_maxFrequency = 0;
-        for (const auto& phaseMap : m_frequencyTable) {
-            for (int freq : phaseMap) {
-                m_maxFrequency = std::max(m_maxFrequency, freq);
-            }
-        }
-    }
-
-    update();
-}
-
-void PRPDChart::removePointFromBatch(int phaseIdx, BinIndex binIdx, int frequency) {
-    auto it = m_renderBatchMap.find(frequency);
-    if (it != m_renderBatchMap.end()) {
-        it->second.pointMap.erase({phaseIdx, binIdx});
-        it->second.needsRebuild = true;
-        if (it->second.pointMap.empty()) {
-            m_renderBatchMap.erase(it);
-        }
+    if (m_pointDataDirty || m_frequencyTableDirty) {
+        update();
     }
 }
 
-void PRPDChart::addPointToBatch(int phaseIdx, BinIndex binIdx, int frequency) {
-    float phase     = static_cast<float>(phaseIdx) * (PRPDConstants::PHASE_MAX / m_phasePoints);
-    float amplitude = getBinCenterAmplitude(binIdx);
+void PRPDChart::changeFrequency(int phaseIdx, BinIndex binIdx, int delta) {
+    int& frequency = m_frequencyTable[phaseIdx][binIdx];
+    const int oldFrequency = frequency;
+    if (oldFrequency > 0) --m_frequencyCounts[oldFrequency];
+    frequency += delta;
+    if (frequency > 0) ++m_frequencyCounts[frequency];
 
-    Transform2D transform;
-    transform.position = QVector2D(mapPhaseToGL(phase), mapAmplitudeToGL(amplitude));
-    transform.scale    = QVector2D(1.0f, 1.0f);
-
-    auto& batch                        = m_renderBatchMap[frequency];
-    batch.frequency                    = frequency;
-    batch.pointMap[{phaseIdx, binIdx}] = transform;
-    batch.needsRebuild                 = true;
+    const size_t cell = static_cast<size_t>(phaseIdx) * PRPDConstants::AMPLITUDE_BINS + binIdx;
+    if (oldFrequency == 0) {
+        m_activeCellPositions[cell] = m_activeCells.size();
+        m_activeCells.push_back(cell);
+    } else if (frequency == 0) {
+        const size_t position = m_activeCellPositions[cell];
+        const size_t lastCell = m_activeCells.back();
+        m_activeCells[position] = lastCell;
+        m_activeCellPositions[lastCell] = position;
+        m_activeCells.pop_back();
+        m_activeCellPositions[cell] = std::numeric_limits<size_t>::max();
+    }
+    m_maxFrequency = std::max(m_maxFrequency, frequency);
+    m_pointDataDirty = true;
 }
 
 void PRPDChart::clearFrequencyTable() {
@@ -287,31 +277,14 @@ void PRPDChart::clearFrequencyTable() {
         std::fill(phaseRow.begin(), phaseRow.end(), 0);
     }
     m_maxFrequency = 0;
-}
-
-void PRPDChart::updatePointTransformsFromFrequencyTable() {
-    m_renderBatchMap.clear();
-
-    for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
-        float phase = static_cast<float>(phaseIdx) * (PRPDConstants::PHASE_MAX / m_phasePoints);
-
-        for (BinIndex binIdx = 0; binIdx < PRPDConstants::AMPLITUDE_BINS; ++binIdx) {
-            int frequency = m_frequencyTable[phaseIdx][binIdx];
-            if (frequency <= 0)
-                continue;
-
-            float amplitude = getBinCenterAmplitude(binIdx);
-
-            Transform2D transform;
-            transform.position = QVector2D(mapPhaseToGL(phase), mapAmplitudeToGL(amplitude));
-            transform.scale    = QVector2D(1.0f, 1.0f);
-
-            auto& batch                        = m_renderBatchMap[frequency];
-            batch.frequency                    = frequency;
-            batch.pointMap[{phaseIdx, binIdx}] = transform;
-            batch.needsRebuild                 = true;
-        }
-    }
+    m_frequencyCounts.fill(0);
+    m_activeCells.clear();
+    m_activeCellPositions.assign(static_cast<size_t>(m_phasePoints) * PRPDConstants::AMPLITUDE_BINS,
+                                 std::numeric_limits<size_t>::max());
+    m_frequencyTableDirty = false;
+    m_pointCoordinatesDirty = true;
+    m_colorMaxFrequency = -1;
+    m_pointDataDirty = true;
 }
 
 QVector4D PRPDChart::calculateColor(int frequency) const {
@@ -440,6 +413,8 @@ void PRPDChart::updateAxisTicks(float min, float max) {
 void PRPDChart::setPhaseRange(float min, float max) {
     m_phaseMin = min;
     m_phaseMax = max;
+    m_pointCoordinatesDirty = true;
+    m_pointDataDirty = true;
     setTicksRange('x', min, max, 85);
     update();
 }
@@ -664,47 +639,20 @@ void PRPDChart::mouseReleaseEvent(QMouseEvent *event) {
 
 void PRPDChart::rebuildFrequencyTable() {
     clearFrequencyTable();
+    std::tie(m_frequencyMin, m_frequencyMax) = getCurrentRange();
 
     for (size_t i = 0; i < m_cycleBuffer.data.size(); ++i) {
         const auto& cycle = m_cycleBuffer.data[i];
 
-        std::vector<BinIndex> newBinIndices(m_phasePoints);
+        auto& newBinIndices = m_cycleBuffer.binIndices[i];
         for (int j = 0; j < m_phasePoints; ++j) {
-            newBinIndices[j] = getAmplitudeBinIndex(cycle[j]);
-        }
-
-        m_cycleBuffer.binIndices[i] = newBinIndices;
-
-        for (int phaseIdx = 0; phaseIdx < m_phasePoints; ++phaseIdx) {
-            BinIndex binIdx = newBinIndices[phaseIdx];
-            if (binIdx < PRPDConstants::AMPLITUDE_BINS) {
-                int& freq = m_frequencyTable[phaseIdx][binIdx];
-                freq++;
-                if (freq > m_maxFrequency) {
-                    m_maxFrequency = freq;
-                }
-            }
+            newBinIndices[j] = getAmplitudeBinIndex(cycle[j], m_frequencyMin, m_frequencyMax);
+            changeFrequency(j, newBinIndices[j], 1);
         }
     }
-
-    updatePointTransformsFromFrequencyTable();
-    update();
 }
 
-PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude) const {
-    float displayMin = m_fixedMin, displayMax = m_fixedMax;
-
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            displayMin = m_fixedMin;
-            displayMax = m_fixedMax;
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            std::tie(displayMin, displayMax) = m_dynamicRange.getDisplayRange();
-            break;
-    }
-
+PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude, float displayMin, float displayMax) {
     if (amplitude <= displayMin) {
         return 0;
     }
@@ -747,7 +695,19 @@ float PRPDChart::getBinCenterAmplitude(BinIndex binIndex) const {
 }
 
 void PRPDChart::setPhasePoint(int phasePoint) {
+    if (phasePoint <= 0) {
+        qWarning() << "PRPD 相位采样点数必须大于 0:" << phasePoint;
+        return;
+    }
+    if (phasePoint == m_phasePoints) {
+        return;
+    }
+
+    // 先分配成功再切换配置，旧周期不能按新的相位长度读取。
+    FrequencyTable frequencyTable(static_cast<size_t>(phasePoint));
+    m_frequencyTable.swap(frequencyTable);
     m_phasePoints = phasePoint;
+    resetData();
 }
 
 // ==================== 暂停/恢复 API 实现 ====================

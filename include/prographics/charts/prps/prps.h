@@ -1,15 +1,19 @@
 ﻿#pragma once
 
+#include <QElapsedTimer>
 #include <QMutex>
 #include <QThread>
+#include <QTimer>
 #include <QWaitCondition>
 #include "prographics/charts/coordinate/coordinate3d.h"
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
 #include <memory>
+#include <deque>
 #include <vector>
 
 namespace ProGraphics {
+  class PRPSRenderer;
   /**
    * @brief PRPS 图表相关常量
    */
@@ -40,7 +44,7 @@ namespace ProGraphics {
   };
 
   /**
-   * @brief 动画更新线程
+   * @brief 动画更新线程（保留兼容；图表内部改用 GUI 线程定时器）
    */
   class UpdateThread : public QThread {
     Q_OBJECT
@@ -184,7 +188,7 @@ namespace ProGraphics {
 
     /**
      * @brief 添加一个周期的放电数据
-     * @param cycleData 幅值数组，长度必须等于 PHASE_POINTS
+     * @param cycleData 幅值数组，长度必须等于当前配置的相位采样点数
      */
     void addCycleData(const std::vector<float> &cycleData);
 
@@ -200,6 +204,7 @@ namespace ProGraphics {
 
     /**
      * @brief 设置相位采样点数
+     * @param phasePoint 正整数；点数改变时清空旧周期数据，保持量程及暂停配置
      */
     void setPhasePoint(int phasePoint);
 
@@ -235,11 +240,12 @@ namespace ProGraphics {
 
     /**
      * @brief 设置动画更新间隔
+     * @param intervalMs 正整数，单位毫秒；只影响刷新频率，不改变滚动速度
      */
-    void setUpdateInterval(int intervalMs) { m_updateThread.setUpdateInterval(intervalMs); }
+    void setUpdateInterval(int intervalMs);
 
     /**
-     * @brief 重置所有数据（含 PRPS 线图元；需在 OpenGL 上下文中销毁 GPU 资源）
+     * @brief 重置所有数据，保留阈值、显示及暂停配置
      */
     void resetData();
 
@@ -294,6 +300,10 @@ namespace ProGraphics {
 
     void paintGLObjects() override;
 
+    void showEvent(QShowEvent *event) override;
+
+    void hideEvent(QHideEvent *event) override;
+
   private slots:
     void updatePRPSAnimation();
 
@@ -304,20 +314,23 @@ namespace ProGraphics {
       float zPosition = PRPSConstants::MAX_Z_POSITION;
       bool isActive = true;
       bool instanceBufferDirty = true;
+      int renderSlot = 0;
       std::vector<float> amplitudes;
       std::vector<Transform2D> transforms;
-      std::unique_ptr<Line2D> instancedLine;
     };
 
     // ==================== 成员变量 ====================
 
-    std::vector<std::vector<float> > m_currentCycles;
     float m_threshold = 0.1f;
-    std::vector<std::unique_ptr<LineGroup> > m_lineGroups;
+    std::deque<std::unique_ptr<LineGroup>> m_lineGroups;
+    std::vector<std::unique_ptr<LineGroup>> m_recycledGroups;
+    std::unique_ptr<PRPSRenderer> m_pulseRenderer;
+    int m_nextRenderSlot = 0;
     std::vector<PhaseAmplitudePlaneLine> m_phaseAmplitudePlaneSpecs;
     std::vector<std::unique_ptr<Line2D> > m_phaseAmplitudePlaneDrawers;
-    UpdateThread m_updateThread;
-    float m_prpsAnimationSpeed = 0.1f;
+    QTimer m_animationTimer;
+    QElapsedTimer m_animationClock;
+    float m_prpsScrollSpeed = 5.0f; ///< 每秒移动距离，等同于原来每 20ms 移动 0.1
 
     DynamicRange m_dynamicRange{-75.0f, -30.0f, DynamicRange::DynamicRangeConfig()};
 
@@ -335,12 +348,15 @@ namespace ProGraphics {
 
     bool m_paused = false; ///< 是否暂停动画
     bool m_acceptData = true; ///< 是否接受新数据
+    bool m_animationVisible = false; ///< 由显示事件维护，也覆盖最小化时的自发隐藏
 
     // ==================== 私有方法 ====================
 
-    void processCurrentCycles();
+    void processCycle(const std::vector<float> &cycleData);
 
     void cleanupInactiveGroups();
+
+    void updateAnimationState();
 
     /**
      * @brief 由一周期幅值序列生成竖线实例变换（分桶取峰值或全采样）
