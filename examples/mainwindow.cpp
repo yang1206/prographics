@@ -235,35 +235,27 @@ void MainWindow::setupUI() {
     m_bufferRatioSpin->setDecimals(2);
     configLayout->addWidget(m_bufferRatioSpin, 0, 1);
 
-    configLayout->addWidget(new QLabel("响应速度:"), 1, 0);
-    m_responseSpeedSpin = new QDoubleSpinBox();
-    m_responseSpeedSpin->setRange(0.1, 1.0);
-    m_responseSpeedSpin->setValue(0.7);
-    m_responseSpeedSpin->setSingleStep(0.1);
-    m_responseSpeedSpin->setDecimals(1);
-    configLayout->addWidget(m_responseSpeedSpin, 1, 1);
+    configLayout->addWidget(new QLabel("收缩等待:"), 1, 0);
+    m_shrinkDelaySpin = new QSpinBox();
+    m_shrinkDelaySpin->setRange(0, 3600000);
+    m_shrinkDelaySpin->setValue(3000);
+    m_shrinkDelaySpin->setSingleStep(500);
+    m_shrinkDelaySpin->setSuffix(" ms");
+    m_shrinkDelaySpin->setToolTip("历史高值退出保留窗口后，候选量程持续满足收缩条件的等待时间。");
+    configLayout->addWidget(m_shrinkDelaySpin, 1, 1);
 
-    configLayout->addWidget(new QLabel("恢复帧数:"), 2, 0);
-    m_recoveryFramesSpin = new QSpinBox();
-    m_recoveryFramesSpin->setRange(1, 100);
-    m_recoveryFramesSpin->setValue(20);
-    configLayout->addWidget(m_recoveryFramesSpin, 2, 1);
-
-    configLayout->addWidget(new QLabel("恢复比例:"), 3, 0);
+    configLayout->addWidget(new QLabel("收缩跨度比例:"), 2, 0);
     m_recoveryRatioSpin = new QDoubleSpinBox();
     m_recoveryRatioSpin->setRange(0.1, 1.0);
     m_recoveryRatioSpin->setValue(0.8);
     m_recoveryRatioSpin->setSingleStep(0.1);
     m_recoveryRatioSpin->setDecimals(1);
-    configLayout->addWidget(m_recoveryRatioSpin, 3, 1);
+    m_recoveryRatioSpin->setToolTip("候选跨度不大于当前跨度乘以该比例时，开始收缩等待。");
+    configLayout->addWidget(m_recoveryRatioSpin, 2, 1);
 
-    m_smartAdjustCheck = new QCheckBox("智能调整");
-    m_smartAdjustCheck->setChecked(true);
-    configLayout->addWidget(m_smartAdjustCheck, 4, 0, 1, 2);
-
-    m_enableRecoveryCheck = new QCheckBox("启用范围恢复");
+    m_enableRecoveryCheck = new QCheckBox("允许自动收缩");
     m_enableRecoveryCheck->setChecked(true);
-    configLayout->addWidget(m_enableRecoveryCheck, 5, 0, 1, 2);
+    configLayout->addWidget(m_enableRecoveryCheck, 3, 0, 1, 2);
 
     dynamicLayout->addWidget(dynamicGroup);
 
@@ -433,11 +425,11 @@ void MainWindow::updateUIForMode(int modeIndex) {
             m_dynamicConfigWidget->setVisible(false);
             break;
         case 1: // Auto
-            m_modeDescLabel->setText("完全根据数据自动调整范围");
+            m_modeDescLabel->setText("拟合保留的数据，立即扩展、延迟收缩");
             m_dynamicConfigWidget->setVisible(true);
             break;
         case 2: // Adaptive
-            m_modeDescLabel->setText("在初始范围基础上智能扩展");
+            m_modeDescLabel->setText("至少保留初始范围，越界扩展、稳定后恢复");
             m_dynamicConfigWidget->setVisible(true);
             break;
     }
@@ -449,16 +441,19 @@ void MainWindow::onApplyRange() {
 
     ProGraphics::DynamicRange::DynamicRangeConfig config;
     config.bufferRatio = m_bufferRatioSpin->value();
-    config.responseSpeed = m_responseSpeedSpin->value();
-    config.recoveryFrameThreshold = m_recoveryFramesSpin->value();
+    config.shrinkDelayMs = m_shrinkDelaySpin->value();
     config.recoveryRangeRatio = m_recoveryRatioSpin->value();
-    config.smartAdjustment = m_smartAdjustCheck->isChecked();
     config.enableRangeRecovery = m_enableRecoveryCheck->isChecked();
+    config.enableHardLimits = m_enableHardLimitsCheck->isChecked();
+    config.hardLimitMin = m_hardLimitMinSpin->value();
+    config.hardLimitMax = m_hardLimitMaxSpin->value();
 
     switch (m_rangeModeCombo->currentIndex()) {
         case 0: // Fixed
             m_prpdChart->setFixedRange(min, max);
             m_prpsChart->setFixedRange(min, max);
+            m_prpdChart->setHardLimits(config.hardLimitMin, config.hardLimitMax, config.enableHardLimits);
+            m_prpsChart->setHardLimits(config.hardLimitMin, config.hardLimitMax, config.enableHardLimits);
             break;
         case 1: // Auto
             m_prpdChart->setAutoRange(config);
@@ -492,10 +487,8 @@ void MainWindow::onResetAll() {
     m_rangeMaxSpin->setValue(-30);
 
     m_bufferRatioSpin->setValue(0.3);
-    m_responseSpeedSpin->setValue(0.7);
-    m_recoveryFramesSpin->setValue(20);
+    m_shrinkDelaySpin->setValue(3000);
     m_recoveryRatioSpin->setValue(0.8);
-    m_smartAdjustCheck->setChecked(true);
     m_enableRecoveryCheck->setChecked(true);
 
     m_enableHardLimitsCheck->setChecked(false);

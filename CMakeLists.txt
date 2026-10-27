@@ -10,6 +10,7 @@ project(ProGraphics
 # 设置CMake选项
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
+option(PROGRAPHICS_BUILD_TESTS "Build deterministic range regression tests" OFF)
 option(PROGRAPHICS_INSTALL "Install ProGraphics targets" ${PROJECT_IS_TOP_LEVEL})
 
 # 设置CMake变量
@@ -217,4 +218,17 @@ endif ()
 # 构建示例
 if (PROGRAPHICS_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif ()
+
+# 纯数值回归不创建 QApplication，也不需要 OpenGL 上下文。
+if (PROGRAPHICS_BUILD_TESTS)
+    enable_testing()
+    add_executable(ProGraphicsRangeTests tests/range_tests.cpp)
+    set_target_properties(ProGraphicsRangeTests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_include_directories(ProGraphicsRangeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_features(ProGraphicsRangeTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(ProGraphicsRangeTests PRIVATE /utf-8)
+    endif ()
+    add_test(NAME ProGraphics.Range COMMAND ProGraphicsRangeTests)
 endif ()

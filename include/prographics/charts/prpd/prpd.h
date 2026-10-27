@@ -221,18 +221,9 @@ namespace ProGraphics {
             m_pointTransforms.clear();
             clearFrequencyTable();
 
-            float displayMin, displayMax;
-            if (m_rangeMode == RangeMode::Fixed) {
-                displayMin = m_fixedMin;
-                displayMax = m_fixedMax;
-            } else {
-                displayMin = m_configuredMin;
-                displayMax = m_configuredMax;
-                m_dynamicRange.reset();
-                m_dynamicRange.setInitialRange(displayMin, displayMax);
-            }
-
-            updateAxisTicks(displayMin, displayMax);
+            m_rangeWindow.clear();
+            m_dynamicRange.reset();
+            applyCurrentRange(true);
             update();
         }
 
@@ -283,6 +274,9 @@ namespace ProGraphics {
         bool isAcceptingData() const { return m_acceptData; }
 
     signals:
+        // 仅在实际显示端点改变后发出，单位与幅值数据一致。
+        void rangeChanged(float min, float max);
+
         void amplitudeReferenceLineDragStarted(int index, float amplitudeDbm);
         void amplitudeReferenceLineDragged(int index, float amplitudeDbm);
         void amplitudeReferenceLineDragEnded(int index, float amplitudeDbm);
@@ -314,6 +308,7 @@ namespace ProGraphics {
         // ==================== 成员变量 ====================
 
         CycleBuffer m_cycleBuffer;
+        RangeWindow m_rangeWindow{PRPDConstants::MAX_CYCLES};
         FrequencyTable m_frequencyTable = FrequencyTable(PRPDConstants::PHASE_POINTS);
         std::vector<size_t> m_activeCells;
         std::vector<size_t> m_activeCellPositions;
@@ -344,7 +339,7 @@ namespace ProGraphics {
         float m_phaseMax = PRPDConstants::PHASE_MAX;
         int m_phasePoints = PRPDConstants::PHASE_POINTS;
 
-        DynamicRange m_dynamicRange{0.0f, 50.0f, DynamicRange::DynamicRangeConfig()};
+        DynamicRange m_dynamicRange{-75.0f, -30.0f, DynamicRange::DynamicRangeConfig()};
 
         RangeMode m_rangeMode = RangeMode::Fixed;
         float m_fixedMin = -75.0f;
@@ -392,6 +387,10 @@ namespace ProGraphics {
         QVector4D calculateColor(int frequency) const;
 
         void forceUpdateRange();
+
+        void updateRangeFromWindow();
+
+        void applyCurrentRange(bool forceTicks = false);
 
         void updateAxisTicks(float min, float max);
 

@@ -295,6 +295,10 @@ namespace ProGraphics {
      */
     bool isAcceptingData() const { return m_acceptData; }
 
+  signals:
+    // 仅在实际显示端点改变后发出，单位与幅值数据一致。
+    void rangeChanged(float min, float max);
+
   protected:
     void initializeGLObjects() override;
 
@@ -323,6 +327,8 @@ namespace ProGraphics {
 
     float m_threshold = 0.1f;
     std::deque<std::unique_ptr<LineGroup>> m_lineGroups;
+    RangeWindow m_rangeWindow{PRPSConstants::MAX_LINE_GROUPS};
+    bool m_lineTransformsDirty = false;
     std::vector<std::unique_ptr<LineGroup>> m_recycledGroups;
     std::unique_ptr<PRPSRenderer> m_pulseRenderer;
     int m_nextRenderSlot = 0;
@@ -339,6 +345,8 @@ namespace ProGraphics {
     float m_fixedMax = -30.0f;
     float m_configuredMin = -75.0f;
     float m_configuredMax = -30.0f;
+    float m_displayMin = -75.0f;
+    float m_displayMax = -30.0f;
 
     float m_phaseMin = PRPSConstants::PHASE_MIN;
     float m_phaseMax = PRPSConstants::PHASE_MAX;
@@ -373,7 +381,13 @@ namespace ProGraphics {
 
     void recalculateLineGroups();
 
+    void rebuildLineGroups();
+
     void forceUpdateRange();
+
+    void updateRangeFromWindow();
+
+    void applyCurrentRange(bool forceTicks = false);
 
     void updateAxisTicks(float min, float max);
 

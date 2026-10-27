@@ -1,550 +1,302 @@
 # PRPD 和 PRPS 图表使用手册
 
-本文档详细介绍 ProGraphics 库中 **PRPD (Phase Resolved Partial Discharge)** 和 **PRPS (Phase Resolved Pulse Sequence)** 两种局部放电可视化图表的使用方法。
+本文介绍图表的接入、数据输入、量程配置与交互。库的构建与依赖接入见 [README](../README.md)。
 
 ## 目录
 
-- [概述](#概述)
+- [选择图表](#选择图表)
+- [快速开始](#快速开始)
+- [输入数据](#输入数据)
 - [PRPD 图表](#prpd-图表)
-  - [工作原理](#prpd-工作原理)
-  - [API 参考](#prpd-api-参考)
-  - [量程模式](#prpd-量程模式)
-  - [配置参数](#prpd-配置参数)
-  - [暂停/恢复](#prpd-暂停恢复)
 - [PRPS 图表](#prps-图表)
-  - [工作原理](#prps-工作原理)
-  - [API 参考](#prps-api-参考)
-  - [量程模式](#prps-量程模式)
-  - [配置参数](#prps-配置参数)
-  - [暂停/恢复](#prps-暂停恢复)
-- [通用配置](#通用配置)
-  - [硬限制](#硬限制)
-  - [动态量程算法说明](#动态量程算法说明)
-- [使用示例](#使用示例)
+- [量程配置](#量程配置)
+- [暂停与恢复](#暂停与恢复)
+- [参考线与刻度](#参考线与刻度)
+- [示例与压力测试](#示例与压力测试)
 - [常见问题](#常见问题)
 
----
+## 选择图表
 
-## 概述
+| 图表 | 观察内容 | 保留范围 | 颜色含义 |
+|---|---|---|---|
+| PRPD | 相位与幅值的统计分布 | 最近最多 500 个周期 | 同一相位、幅值格中的累计频次，蓝色低、红色高 |
+| PRPS | 各周期的幅值及先后顺序 | 最多 80 个周期，旧周期随滚动移出 | 幅值在当前显示量程中的相对高度 |
 
-ProGraphics 提供两种专门用于局部放电 (Partial Discharge) 数据可视化的图表：
+PRPD 适合观察分布是否集中、哪些区域反复出现；PRPS 适合观察连续周期的变化。
 
-| 图表 | 维度 | 用途 | 数据处理方式 |
-|------|------|------|-------------|
-| **PRPD** | 2D (相位 × 幅值) + 颜色频次 | 统计分布观察 | 累积统计，环形缓冲 |
-| **PRPS** | 3D (相位 × 幅值 × 时间) | 时序演变观察 | 滚动更新，Z轴推移 |
+## 快速开始
 
----
-
-## PRPD 图表
-
-### PRPD 工作原理
-
-PRPD (Phase Resolved Partial Discharge) 是**局部放电相位分布图**，用于显示放电信号在相位-幅值平面上的统计分布。
-
-**工作流程：**
-1. 每个周期数据包含 `PHASE_POINTS` (默认 200) 个幅值采样点
-2. 将幅值范围划分为 `AMPLITUDE_BINS` (默认 100) 个格子
-3. 每个采样点根据相位和幅值落在对应的格子中，频次计数加 1
-4. 使用颜色表示频次，颜色从蓝 (低频次) 到红 (高频次) 渐变
-5. 环形缓冲最多保存 `MAX_CYCLES` (默认 500) 个周期，满了之后覆盖最老的数据
-
-### PRPD 常量
-
-```cpp
-struct PRPDConstants {
-    static constexpr float GL_AXIS_LENGTH = 5.0f;    ///< OpenGL 坐标轴长度
-    static constexpr float POINT_SIZE = 8.0f;         ///< 点渲染大小
-    static constexpr int PHASE_POINTS = 200;          ///< 相位采样点数
-    static constexpr int MAX_CYCLES = 500;            ///< 最大周期缓存数
-    static constexpr float PHASE_MAX = 360.0f;        ///< 相位最大值
-    static constexpr float PHASE_MIN = 0.0f;          ///< 相位最小值
-    static constexpr int AMPLITUDE_BINS = 100;        ///< 幅值划分格子数
-};
-```
-
-### PRPD API 参考
-
-#### 量程设置
-
-| API | 说明 |
-|-----|------|
-| `void setFixedRange(float min, float max)` | 设置固定量程，范围不随数据变化 |
-| `void setAutoRange(const DynamicRangeConfig &config = {})` | 设置自动量程，完全根据数据动态调整 |
-| `void setAdaptiveRange(float initialMin, float initialMax, const DynamicRangeConfig &config = {})` | 设置自适应量程，在初始范围基础上智能调整 |
-
-#### 量程查询
-
-| API | 说明 |
-|-----|------|
-| `RangeMode getRangeMode() const` | 获取当前量程模式 |
-| `std::pair<float, float> getCurrentRange() const` | 获取当前实际显示范围 |
-| `std::pair<float, float> getConfiguredRange() const` | 获取配置的范围（用于 UI 显示） |
-
-#### 运行时调整
-
-| API | 说明 |
-|-----|------|
-| `void updateAutoRangeConfig(const DynamicRangeConfig &config)` | 更新动态量程配置（仅 Auto/Adaptive 模式有效）|
-| `void switchToFixedRange(float min, float max)` | 切换到固定量程 |
-| `void switchToAutoRange()` | 切换到自动量程 |
-
-#### 硬限制
-
-| API | 说明 |
-|-----|------|
-| `void setHardLimits(float min, float max, bool enabled = true)` | 设置硬限制范围，防止异常数据导致量程过大 |
-| `std::pair<float, float> getHardLimits() const` | 获取硬限制范围 |
-| `void enableHardLimits(bool enabled)` | 启用/禁用硬限制 |
-| `bool isHardLimitsEnabled() const` | 检查硬限制是否启用 |
-
-#### 数据接口
-
-| API | 说明 |
-|-----|------|
-| `void addCycleData(const std::vector<float> &cycleData)` | 添加一个周期的放电数据，长度必须等于相位采样点数 |
-| `void setPhaseRange(float min, float max)` | 设置相位范围，默认 0-360° |
-| `void setPhasePoint(int phasePoint)` | 设置相位采样点数，默认 200；必须大于 0，改变点数会清空旧周期 |
-| `void resetData()` | 清空所有数据，重置到初始状态 |
-
-### PRPD 量程模式
-
-| 模式 | 说明 | 适用场景 |
-|------|------|---------|
-| `Fixed` | 范围固定不变，不随数据调整 | 已知数据范围，不需要调整 |
-| `Auto` | 完全根据数据自动调整范围 | 数据范围未知，需要完全自动适应 |
-| `Adaptive` | 在初始范围基础上智能扩展 | 有一个大概的初始范围，允许自动微调 |
-
-### PRPD 配置参数
-
-参见 [动态量程配置参数](#动态量程算法说明)
-
-### PRPD 暂停/恢复
-
-PRPD 支持暂停数据更新，用于冻结当前统计分布进行观察。
-
-| API | 说明 |
-|-----|------|
-| `void pause(bool blockNewData = true)` | 暂停数据更新。`blockNewData = true` 时禁止接收新数据，新数据直接丢弃 |
-| `void resume()` | 恢复数据更新，继续接受新数据和统计累积 |
-| `bool isPaused() const` | 检查当前是否已暂停 |
-| `void togglePause()` | 切换暂停/恢复状态 |
-| `void setAcceptData(bool enabled)` | 设置是否接受新数据（即使暂停也可单独控制） |
-| `bool isAcceptingData() const` | 检查是否正在接受新数据 |
-
-**默认行为** (`pause()` 不带参数):
-- ✅ 不再接受新数据，新来的数据直接丢弃
-- ✅ 当前统计分布完全冻结，不会变化
-- ✅ 环形缓冲不会覆盖老数据
-- ✅ 保持所有当前统计信息不变
-
-**`pause(false)` (允许接收新数据):**
-- ✅ 仍然接受新数据
-- ✅ 统计正常更新，满了正常覆盖老数据
-- ✅ 只是标记为暂停状态，不影响内部处理
-
----
-
-## PRPS 图表
-
-### PRPS 工作原理
-
-PRPS (Phase Resolved Pulse Sequence) 是**局部放电脉冲序列图**，用于显示放电信号的三维时序演变。
-
-**工作流程：**
-1. 每个周期数据生成一条水平线，位于 Z 轴最大位置 `MAX_Z_POSITION`
-2. 后台定时动画，所有线组向 Z 轴负方向移动
-3. 当线组 Z 位置小于 `MIN_Z_POSITION` 时，标记为不活跃并清理
-4. 这样就形成了**新数据从后方进来，旧数据从前方出去**的滚动效果
-5. Z 轴代表时间，展示数据随时间的演变过程
-
-### PRPS 常量
-
-```cpp
-struct PRPSConstants {
-    static constexpr int   PHASE_POINTS     = 200;  ///< 相位采样点数
-    static constexpr int   CYCLES_PER_FRAME = 50;   ///< 每帧周期数
-    static constexpr float GL_AXIS_LENGTH   = 6.0f; ///< OpenGL 坐标轴长度
-    static constexpr float MAX_Z_POSITION   = 6.0f; ///< 最大 Z 轴位置
-    static constexpr float MIN_Z_POSITION   = 0.0f; ///< 最小 Z 轴位置
-    static constexpr float PHASE_MAX        = 360.0f;
-    static constexpr float PHASE_MIN        = 0.0f;
-    static constexpr size_t MAX_LINE_GROUPS = 80;   ///< 最大线组数量
-};
-```
-
-### PRPS API 参考
-
-#### 量程设置
-
-API 和 [PRPD](#prpd-api-参考) 完全一致。
-
-#### 量程查询
-
-API 和 [PRPD](#prpd-api-参考) 完全一致。
-
-#### 运行时调整
-
-API 和 [PRPD](#prpd-api-参考) 完全一致。
-
-#### 硬限制
-
-API 和 [PRPD](#prpd-api-参考) 完全一致。
-
-#### 数据接口
-
-| API | 说明 |
-|-----|------|
-| `void addCycleData(const std::vector<float>& cycleData)` | 添加一个周期的放电数据，长度必须等于相位采样点数 |
-| `void setThreshold(float threshold)` | 设置幅值阈值，低于阈值的不显示，默认 0.1 |
-| `void setPhaseRange(float min, float max)` | 设置相位范围，默认 0-360° |
-| `void setPhasePoint(int phasePoint)` | 设置相位采样点数，默认 200；必须大于 0，改变点数会清空旧周期 |
-| `void setUpdateInterval(int intervalMs)` | 设置动画更新间隔，默认 20ms；必须大于 0，不改变滚动速度 |
-| `void resetData()` | 清空所有数据并恢复配置量程，保留阈值、显示及暂停配置 |
-
-### PRPS 量程模式
-
-和 [PRPD 量程模式](#prpd-量程模式) 完全一致。
-
-### PRPS 配置参数
-
-参见 [动态量程配置参数](#动态量程算法说明)
-
-### PRPS 暂停/恢复
-
-PRPS 支持暂停动画更新，停止滚动，保持当前数据不消失。
-
-| API | 说明 |
-|-----|------|
-| `void pause(bool blockNewData = true)` | 暂停动画更新。`blockNewData = true` 时禁止接收新数据 |
-| `void resume()` | 恢复动画更新，继续滚动和数据接收 |
-| `bool isPaused() const` | 检查当前是否已暂停 |
-| `void togglePause()` | 切换暂停/恢复状态 |
-| `void setAcceptData(bool enabled)` | 设置是否接受新数据（即使暂停也可单独控制） |
-| `bool isAcceptingData() const` | 检查是否正在接受新数据 |
-
-**默认行为** (`pause()` 不带参数):
-- ✅ 停止滚动动画，已有的线组不再向 Z 负方向移动
-- ✅ 不再接受新数据，新来的数据直接丢弃
-- ✅ 所有数据保持当前位置不变，不会消失
-- ✅ 不会自动清理移出范围的线组
-
-**`pause(false)` (允许接收新数据):**
-- ✅ 停止滚动动画，已有线组位置保持不变
-- ✅ 仍然接受新数据，新线组添加到 Z 轴末尾
-- ✅ 结果就是：图像慢慢变长，已有的位置不动，可以观察累积过程
-
-**恢复行为** (`resume()`):
-- ✅ 继续滚动动画，从暂停的位置继续
-- ✅ 恢复接受新数据
-- ✅ 恢复自动清理不活跃线组
-- ✅ 不需要"追更"，暂停期间添加的数据已经在正确位置了
-
-**刷新与资源复用：**
-
-- 图表使用 GUI 线程定时器，仅在可见、未暂停且存在周期数据时滚动；隐藏或清空后停止动画调度。
-- 隐藏期间冻结已有位置，再次显示后继续滚动，不补算隐藏期间的位移。
-- 位移按实际经过的时间计算，修改刷新间隔只改变帧率。
-- 正常滚动时复用周期槽，所有周期共用一个 GPU 实例缓冲区；活动槽与回收槽合计最多 `MAX_LINE_GROUPS` 个，`resetData()` 释放这些槽。
-- 新周期的 GPU 资源在绘制时创建，因此可以在图表首次显示前提交数据。
-
----
-
-## 通用配置
-
-### 硬限制
-
-硬限制用于防止异常数据导致量程过大，对 PRPD 和 PRPS 都有效。
-
-当启用硬限制后：
-- 动态量程计算出来的范围不会超出硬限制的 `[min, max]`
-- 即使数据超出硬限制，显示范围也会被裁剪
-- 可以有效防止偶尔的异常脉冲导致量程变得很大
-
-API:
-```cpp
-void setHardLimits(float min, float max, bool enabled = true);
-```
-
-### 动态量程配置参数
-
-`DynamicRange::DynamicRangeConfig` 配置结构，用于 Auto 和 Adaptive 模式：
-
-| 参数 | 默认值 | 作用 | 影响 |
-|------|--------|------|------|
-| `bufferRatio` | 0.3 | 控制数据最大值之上的额外空间比例 | 增大会使量程上限比数据最大值更高，留有更多空白区域 |
-| `responseSpeed` | 0.7 | 控制量程变化的平滑响应速度 | 值越大，量程变化越快；值越小，变化越平滑缓慢 |
-| `smartAdjustment` | true | 自动调整扩展和收缩的速度差异 | 启用时扩展快收缩慢，提供更稳定的视觉体验 |
-| `targetTickCount` | 6 | 期望的刻度数量 | 影响刻度间隔和美观范围计算 |
-| `enforceMinimumRange` | true | 是否使用最小量程功能 | 当数据较小时固定使用最小量程 |
-| `minimumRangeMax` | 5.0 | 最小量程的上限值 | 当数据小于阈值时使用的固定上限 |
-| `minimumThreshold` | 2.0 | 激活最小量程的数据阈值 | 当数据最大值小于此值时启用最小量程 |
-
-### 动态量程算法流程
-
-简要流程：
-
-1. **数据范围确定** - 计算当前数据的最小最大值
-2. **添加缓冲区** - 最大值加上 `bufferRatio` 比例的缓冲区
-3. **计算美观范围** - 根据期望刻度数计算美观的刻度步长和范围
-4. **平滑更新** - 使用 `responseSpeed` 控制的平滑因子从当前范围过渡到目标范围
-5. **智能调整** - 扩展快、收缩慢，减少视觉抖动
-6. **抗抽搐** - 微小变化不更新，避免频繁跳动
-
-详细算法分析请参考 [dev.md](../dev.md)。
-
----
-
-## 使用示例
-
-### 基本创建和使用
+应用目标链接 `ProGraphics::ProGraphics`。下面的示例创建两张图，显示同一个周期，并提供暂停按钮；实际项目可将图表放入自己的布局。
 
 ```cpp
 #include <QApplication>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QSurfaceFormat>
+#include <QVBoxLayout>
+#include <QWidget>
+#include <vector>
 #include <prographics/charts/prpd/prpd.h>
 #include <prographics/charts/prps/prps.h>
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     QSurfaceFormat format;
     format.setVersion(4, 1);
     format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setDepthBufferSize(24);
+    format.setStencilBufferSize(8);
     QSurfaceFormat::setDefaultFormat(format);
-    
+
     QApplication app(argc, argv);
-    
-    // 创建 PRPD 图表
-    ProGraphics::PRPDChart *prpd = new ProGraphics::PRPDChart();
-    prpd->setFixedRange(-75, -30);  // 固定量程
-    prpd->setPhaseRange(0, 360);     // 相位范围
-    
-    // 创建 PRPS 图表
-    ProGraphics::PRPSChart *prps = new ProGraphics::PRPSChart();
-    prps->setFixedRange(-75, -30);   // 固定量程
-    prps->setUpdateInterval(20);     // 动画更新间隔 20ms
-    
-    // 添加数据
-    std::vector<float> cycleData = generateYourData();
-    prpd->addCycleData(cycleData);
-    prps->addCycleData(cycleData);
-    
-    // 暂停/继续（同时控制两个）
-    void onPauseButtonClicked() {
-        if (!prpd->isPaused()) {
-            prpd->pause(true);  // 暂停，丢弃新数据
-            prps->pause(true);  // 暂停，丢弃新数据
-            // 更新按钮文字...
-        } else {
-            prpd->resume();
-            prps->resume();
-            // 更新按钮文字...
-        }
-    }
-    
+    QWidget window;
+    auto* layout = new QVBoxLayout(&window);
+    auto* charts = new QHBoxLayout;
+    auto* prpd = new ProGraphics::PRPDChart(&window);
+    auto* prps = new ProGraphics::PRPSChart(&window);
+    charts->addWidget(prpd);
+    charts->addWidget(prps);
+    layout->addLayout(charts);
+
+    prpd->setFixedRange(-75.0f, -30.0f);
+    prps->setFixedRange(-75.0f, -30.0f);
+    prps->setUpdateInterval(20);
+
+    // 示例周期；实际接入时替换为采集数据，并持续调用 addCycleData。
+    std::vector<float> cycle(200, -65.0f);
+    cycle[50] = -40.0f;
+    cycle[150] = -45.0f;
+    prpd->addCycleData(cycle);
+    prps->addCycleData(cycle);
+
+    auto* pauseButton = new QPushButton("暂停", &window);
+    layout->addWidget(pauseButton);
+    QObject::connect(pauseButton, &QPushButton::clicked, &window,
+        [prpd, prps, pauseButton] {
+            if (prpd->isPaused()) {
+                prpd->resume();
+                prps->resume();
+                pauseButton->setText("暂停");
+            } else {
+                prpd->pause();
+                prps->pause();
+                pauseButton->setText("继续");
+            }
+        });
+
+    window.resize(1200, 600);
+    window.show();
     return app.exec();
 }
 ```
 
-### 使用自适应量程
+## 输入数据
+
+所有图表的数据和配置方法都应在 GUI 线程调用。后台采集的数据应通过队列信号或其他 GUI 线程调度方式交给图表。
+
+| API（两种图表通用） | 用法 |
+|---|---|
+| `addCycleData(const std::vector<float>& cycleData)` | 输入一个周期，数组按相位顺序存放幅值，长度必须等于配置的采样点数 |
+| `setPhasePoint(int phasePoint)` | 设置每周期采样点数，默认 200，必须大于 0；改变点数会清空历史，同值设置不清空 |
+| `setPhaseRange(float min, float max)` | 设置相位显示范围，默认 0～360° |
+| `resetData()` | 清空历史数据并重置量程状态，保留暂停及接收开关 |
+
+幅值单位由调用方约定，输入数据与量程、参考线必须使用相同单位。修改轴单位文字不会进行数值换算。
+
+长度不匹配的周期会被拒绝。NaN 和 Inf 不参与幅值统计或绘制；全无效周期仍占用一个周期位置。需要表示无采样值时，可使用 NaN，不能假定某个有限底值会被自动忽略。
+
+## PRPD 图表
+
+PRPD 将当前幅值范围分为 100 个格子，按相位和幅值累计频次。超过 500 个周期后，最老周期退出统计；停止输入不会自动清除已有周期。
+
+颜色使用每格频次与全图最大频次的比值。多个周期落在同一个幅值格，会形成高频红带；其他区域频次相对较低时仍可能呈蓝色。颜色表示相对频次，不直接表示幅值大小。
+
+有限幅值低于量程下限时计入最底部的格子，高于上限时计入最顶部的格子。量程变化后，保留周期按新的范围重新分箱，因此分布外观和颜色可能随量程改变。需要跨时段比较分布时，使用一致的固定量程。
+
+## PRPS 图表
+
+每个输入周期形成一组脉冲竖线，新周期从后方加入，旧周期向前滚动并移出。最多保留 80 个周期，超出后移除最老周期。
+
+| API | 用法 |
+|---|---|
+| `setUpdateInterval(int intervalMs)` | 设置动画更新间隔，默认 20ms，必须大于 0；改变间隔不改变滚动速度 |
+| `setDisplayLineCount(int count)` | 设置每周期的显示竖线数，默认 50；少于采样点数时按相位分组并取组内最大幅值 |
+| `displayLineCount() const` | 查询显示竖线数配置 |
+| `setThreshold(float threshold)` | 当前不参与竖线过滤，不能用它设置有效幅值门限 |
+
+`setDisplayLineCount(0)` 或设置为不小于采样点数的值时，按每个采样点绘制。位于量程下限及以下的值不生成竖线；高于上限的值显示到顶部。
+
+隐藏图表会冻结已有周期的位置，再次显示后继续滚动，不补算隐藏期间的位移。隐藏不会自动拒绝输入；如需同时停止接收，调用 `pause()`。
+
+## 量程配置
+
+以下 API 两种图表均支持。示例中的 `RangeConfig` 是配置类型的简写：
 
 ```cpp
-ProGraphics::DynamicRange::DynamicRangeConfig config;
-config.bufferRatio = 0.3;       // 30% 缓冲区
-config.responseSpeed = 0.7;     // 响应速度 0.7
-config.smartAdjustment = true;  // 智能调整开启
-
-prpd->setAdaptiveRange(-80, -20, config);
-prps->setAdaptiveRange(-80, -20, config);
+using RangeConfig = ProGraphics::DynamicRange::DynamicRangeConfig;
 ```
 
-### 启用硬限制
+### 选择量程模式
+
+| 模式与设置方法 | 行为 | 适用场景 |
+|---|---|---|
+| `setFixedRange(min, max)` | 始终使用指定范围 | 范围已知，或需要比较多张图 |
+| `setAutoRange(config)` | 根据保留数据拟合范围，允许扩展和收缩 | 数据范围未知 |
+| `setAdaptiveRange(initialMin, initialMax, config)` | 至少显示初始范围，需要时扩展，之后可恢复 | 有常用范围，又需要显示越界峰值 |
+
+Auto 和 Adaptive 首次收到有效数据时拟合量程。之后出现越界峰值会立即扩展；数据回落后，只有收缩条件持续满足才缩小范围。Adaptive 的初始范围也受硬限制约束。
 
 ```cpp
-prpd->setHardLimits(-100, 0, true);  // 幅值不会超出 -100 ~ 0
-prps->setHardLimits(-100, 0, true);
+RangeConfig config;
+config.bufferRatio = 0.3f;       // 数据上方留出数据跨度的 30%
+config.shrinkDelayMs = 3000;     // 收缩条件持续满足 3 秒
+config.recoveryRangeRatio = 0.8f;
+config.enableHardLimits = true;
+config.hardLimitMin = -100.0f;
+config.hardLimitMax = 0.0f;
+
+prpd->setAdaptiveRange(-75.0f, -30.0f, config);
+prps->setAdaptiveRange(-75.0f, -30.0f, config);
 ```
 
-### 示例程序
+### 动态量程配置参数
 
-项目 `examples/` 目录下有完整的示例程序，包含：
-- 随机数据生成
-- 量程模式切换
-- 动态量程参数调整
-- 硬限制设置
-- **全局暂停/继续控制**
-- 状态显示
+| 参数 | 默认值 | 作用 |
+|---|---|---|
+| `bufferRatio` | 0.3 | 上方留白占数据跨度的比例 |
+| `lowerBufferRatio` | 0 | 下方留白占数据跨度的比例 |
+| `targetTickCount` | 6 | 期望的主刻度数量，实际数量可能不同 |
+| `minimumSpan` | 1 | 自动量程的最小跨度，硬限制优先 |
+| `sameValueRangeRatio` | 0.1 | 数据全部相同时，两侧扩展的比例，与最小跨度共同生效 |
+| `shrinkDelayMs` | 3000 | 收缩条件需要持续满足的毫秒数；0 表示不等待 |
+| `recoveryRangeRatio` | 0.8 | 候选跨度不超过当前跨度的该比例时，开始等待收缩 |
+| `enableRangeRecovery` | true | 是否允许收缩；false 时首次拟合后只扩展 |
+| `enableHardLimits` | false | 是否限制自动量程边界 |
+| `hardLimitMin / hardLimitMax` | -1000 / 1000 | 自动量程允许的最小、最大边界 |
 
-可以参考示例程序进行集成。
+`responseSpeed`、`smartAdjustment`、`recoveryFrameThreshold` 为兼容字段，设置它们不会改变当前量程行为。调整收缩时使用 `shrinkDelayMs`、`recoveryRangeRatio` 和 `enableRangeRecovery`。
 
----
+### 查询与运行时调整
 
-## 常见问题
+| API | 用法 |
+|---|---|
+| `getRangeMode() const` | 查询 Fixed、Auto 或 Adaptive 模式 |
+| `getCurrentRange() const` | 获取实际显示的最小值、最大值 |
+| `getConfiguredRange() const` | 获取配置范围；Auto 为进入该模式时的起始范围，不代表当前显示范围 |
+| `updateAutoRangeConfig(const RangeConfig& config)` | 更新 Auto 或 Adaptive 配置；Fixed 下不生效 |
+| `switchToFixedRange(float min, float max)` | 切换为指定的固定范围 |
+| `switchToAutoRange()` | 沿用已有动态量程配置，切换为 Auto |
+| `rangeChanged(float min, float max)`（信号） | 实际显示端点改变时发出，可用于同步外部读数 |
 
-### Q: 暂停之后新数据去哪里了？
+### 硬限制
 
-**A:** 默认 `pause(true)` 情况下，新数据直接在 `addCycleData` 入口被拒绝，直接返回，不会做任何处理，**直接丢掉**。这样保证画面完全不变。
+硬限制只约束 Auto 和 Adaptive 的显示范围，不修改输入值，也不自动丢弃越界数据。Fixed 使用显式设置的范围。
 
-如果 `pause(false)`，新数据会被正常处理，PRPD 正常累积，PRPS 正常添加到末尾，但 PRPS 不滚动。
+```cpp
+prpd->setHardLimits(-100.0f, 0.0f);
+prps->setHardLimits(-100.0f, 0.0f);
+```
 
-### Q: 暂停恢复后，暂停期间的数据会补播放吗？
+使用 `getHardLimits()` 查询边界，`enableHardLimits(bool)` 切换开关，`isHardLimitsEnabled()` 查询是否启用。边界应为有限数且最小值小于最大值。
 
-**A:** 不会。当前设计是：
-- 如果允许接收，数据添加完就一直在那里了
-- 恢复后直接继续滚动，不需要补
-- 如果不允许接收，数据已经丢了，也不用补
+调用 `setAutoRange(config)`、`setAdaptiveRange(..., config)` 或 `updateAutoRangeConfig(config)` 会应用整份配置，包括硬限制。需要保留硬限制时，应在传入配置中一并设置。
 
-这样设计避免了数据延迟和缓存累积，更符合实时可视化的需求。
+## 暂停与恢复
 
-### Q: PRPD 最多能存多少个周期？
+| 调用 | PRPD | PRPS |
+|---|---|---|
+| `pause()` 或 `pause(true)` | 停止接收，统计分布冻结 | 停止接收和滚动，位置冻结 |
+| `pause(false)` | 仍接收并更新统计，只改变暂停标记 | 停止滚动，仍接收新周期；新周期叠加在末端，超过容量仍移除最老周期 |
+| `resume()` | 恢复接收 | 恢复接收和滚动 |
+| `togglePause()` | 在默认暂停与恢复之间切换 | 在默认暂停与恢复之间切换 |
 
-**A:** 默认 `MAX_CYCLES = 500`，编译时常量，如需修改可以在头文件中改。
+`isPaused()` 查询暂停状态。`setAcceptData(bool)` 可独立控制是否接收，`isAcceptingData()` 查询接收开关；`resume()` 会重新开启接收。
 
-### Q: PRPS 最多能显示多少条线？
+拒绝接收期间提交的数据会被丢弃，不会在恢复后补入。两张图可分别暂停，互不影响。
 
-**A:** 默认 `MAX_LINE_GROUPS = 80`，编译时常量。当超过这个数量，最老的线会被删除。
+## 参考线与刻度
 
-### Q: 可以只暂停 PRPS 不暂停 PRPD 吗？
+参考线幅值与输入数据使用相同单位，超出当前显示范围时隐藏。
 
-**A:** API 支持分别暂停，示例程序用了一个按钮同时控制两个，这是示例程序的选择。如果你需要分别控制，可以分开加按钮调用各自的 `pause()` 和 `resume()`。
+```cpp
+ProGraphics::AmplitudeLine pdLine;
+pdLine.amplitudeDbm = -50.0f;
+pdLine.color = QVector4D(1.0f, 0.0f, 0.0f, 1.0f);
+pdLine.lineWidth = 2.0f;
+prpd->setAmplitudeLines({pdLine});
 
-### Q: 相位采样点数必须是 200 吗？
+ProGraphics::PhaseAmplitudePlaneLine psLine;
+psLine.amplitudeDbm = -50.0f;
+psLine.color = pdLine.color;
+psLine.lineWidth = 2.0f;
+prps->setPhaseAmplitudePlaneLines({psLine});
+```
 
-**A:** 不是，可以通过 `setPhasePoint(int)` 设置任意可分配的正整数，包括超过 200 的点数。PRPD 频次表按配置分配；改变点数时，两种图表都会清空旧周期数据，重复设置相同点数不清空，零和负数会被拒绝。PRPD 的幅值分箱数 `AMPLITUDE_BINS` 仍是编译时常量 100。
+上述设置会替换整份参考线列表。分别调用 `clearAmplitudeLines()` 和 `clearPhaseAmplitudePlaneLines()` 清除。
 
-### Q: 动态量程什么时候会收缩？
+PRPD 支持拖动参考线：
 
-**A:** 每 5 帧检查一次，如果数据范围使用率低于 30%，会尝试收缩。收缩速度比扩展慢，提供更稳定的视觉体验。
+```cpp
+prpd->setAmplitudeReferenceLinesDraggable(true);
+prpd->setAmplitudeReferenceLineDragSnapStep(1.0f);
+prpd->setAmplitudeReferenceLinePickTolerancePx(6.0f);
+```
 
-### 第一轮优化的验证边界
+可监听 `amplitudeReferenceLineDragStarted`、`amplitudeReferenceLineDragged` 和 `amplitudeReferenceLineDragEnded`，信号参数均为参考线索引及幅值。拖动 PRPD 参考线不会自动更新 PRPS，联动由调用方处理。
 
-本轮保持图表公开方法的调用方式；由于类的内部布局改变，使用动态库的应用应同步重新编译。所有图表数据及配置方法仍应在 GUI 线程调用，后台采集应通过队列信号传递；内部定时器遵循 [Qt 定时器线程约束](https://doc.qt.io/qt-6/qtimer.html#details)。
+两种图表均可设置轴名称及刻度格式：
 
-以下为用户编译后的建议验收项目，当前仅做源码及差异检查，未运行这些场景，也未取得性能实测结果。
+```cpp
+prpd->setAxisName('y', "幅值", "dBm");
+prpd->setTicksFormatter('y', [](float value) {
+    return QString::number(value, 'f', 1);
+});
+```
 
-| 场景 | 通过标准 |
-|------|----------|
-| VBO 池扩容，同时保留超过 32 个已初始化的通用图元 | 已有图元保持有效，不因缓冲池扩容出现访问异常 |
-| PRPD 自动量程首周期、扩展量程及缓存满 500 周期后的量程变化 | 当前周期均计入统计，每个相位的频次总和等于当前缓存周期数 |
-| 点数依次切换 200 → 512 → 64，同值重复设置及输入 0 / -1 | 有效变更清空历史并接受对应长度；同值保留历史，无效值保留配置 |
-| PRPD 无新数据时触发窗口重绘，再修改数据及量程 | 静态重绘不上传实例；数据变化后颜色、位置及统计同步更新 |
-| PRPS 暂停、允许暂停时接收、隐藏后显示、清空后重新送入 | 暂停和隐藏时位置冻结；恢复无积压动画，空图无动画定时器 |
-| PRPS 分别设置 10 / 20 / 40ms 刷新间隔，持续循环送入与停止数据 | 相同实际时间的滚动距离基本一致；周期槽总数不超过 80 |
+默认刻度格式根据步长选择小数位数，至少保留一位。自定义格式优先；显示小范围数据时，应保留足够的小数位以区分相邻刻度。
 
-性能对比应在同一设备、同一数据与同一可见通道数下记录更新和绘制耗时的 P95/P99、CPU/GPU 占用及内存；当前不声明具体提速比例。
+## 示例与压力测试
 
-本轮仍使用周期幅值数组，未引入脉冲事件输入和采集时间戳。全局着色器和 VBO 池按共享上下文隔离、上下文重建以及完整参数校验尚未整体重构。
+启用 `PROGRAPHICS_BUILD_EXAMPLES` 后可构建 `ProGraphicsExamples`。示例提供数据生成、量程切换、参考线及暂停控制。
 
-### 第二轮性能优化
+在示例左侧选择 **调试工具 → 性能压力测试**，设置通道数、相位点数、周期速率和测试时长，开始测试后可导出 CSV。比较性能时使用 Release，并保持设备、窗口尺寸、屏幕缩放和负载一致。
 
-本轮保持 500 周期统计窗口、100 个幅值箱、当前相位采样点数、PRPS 分桶取峰值规则及淡出曲线，不通过减小数据量提高帧率。变化集中在数据结构和渲染提交方式。
-
-| 路径 | 相对第一轮的变化 | 可从源码确认的减少 |
-|------|------------------|--------------------|
-| PRPD 周期更新 | 直接索引频次表、活动格子及频次计数；复用环形缓存中的分箱数组 | 移除逐点哈希节点增删与临时分箱数组；满窗口同箱替换不更新绘制数据 |
-| PRPD 量程变化 | 原始周期照常入库，在绘制前按最终量程重分箱 | 同一帧前多次量程变化合并成一次完整历史重建，不跳过仍在窗口内的周期 |
-| PRPD 坐标与颜色 | 缓存每个相位、幅值箱的坐标和各频次颜色 | 量程、相位范围或最大频次不变时复用相应计算结果 |
-| 通用 2D 实例 | 平移、缩放、旋转及颜色替代完整矩阵，复用 CPU 打包数组 | 每实例缩至 40 字节，不再逐实例生成 `QMatrix4x4` |
-| PRPS 脉冲层 | 80 个环形 GPU 槽，只有新数据或重映射的槽上传 | 每根竖线缩至 24 字节；每帧最多 2 次脉冲绘制，动画不重传实例 |
-| 参考线 | 相同端点、颜色及样式不再重复标脏；图元持有自己的借用 VBO | 稳定参考线重绘不重复生成、分配或上传顶点数据 |
-
-PRPS 按原周期顺序绘制，跨环形缓冲尾部时分两段提交；槽容量按实际有效竖线数增长，配置上限降低时收缩，全为空数据时不提交脉冲绘制。每槽不足容量的填充实例在顶点阶段裁剪，不写入颜色和深度。每张 PRPS 图使用独立程序、VAO 和实例 VBO。缓冲区更新使用 [Qt 的区间写入接口](https://doc.qt.io/qt-6/qopenglbuffer.html#write)，着色器使用 [GLSL 4.10 的实例及顶点编号](https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.4.10.pdf)，不提高原有 OpenGL 4.1 要求。
-
-精度约束：幅值分箱仍采用原有除法和边界规则，未引入近似倒数、量化颜色或额外降采样。自动量程的实际边界即使只发生小幅变化，也会使统计分箱和显示映射同步失效。缓存只复用输入参数未变化的计算结果。紧凑变换与矩阵变换数学等价，但 CPU/GPU 浮点运算顺序不同，未验证逐像素一致性；PRPD 重叠散点的遮挡及叠色也需回归比较。
-
-以下项目待用户编译运行，当前仅完成静态审阅及差异检查：
-
-| 验收场景 | 通过标准 |
-|----------|----------|
-| PRPD 满 500 周期后反复输入同箱数据，再输入跨箱数据 | 同箱替换不上传实例；跨箱后计数、颜色正确，每相位频次总和始终等于保留周期数 |
-| 一次绘制前连续送入多个导致量程变化的周期，包含窗口覆盖 | 一次按最终量程重建，结果与当前窗口所有原始周期重新分箱一致 |
-| PRPS 暂停后送入 79、80、81、160、161 个周期，再恢复滚动 | 新旧周期顺序、相位、幅值、颜色、Z 位置及淡出正确；无槽位串数据或残留短线 |
-| PRPS 全部移出后重新送入，并切换显示线数和相位点数 | 正确重建缓冲布局，填充位置不可见，旧槽内容不串入新周期 |
-| 使用 GPU 抓帧工具查看脉冲层 | 有脉冲时每帧 1 或 2 次实例化绘制，全为空数据时 0 次；无新数据、无重映射的动画帧不上传实例 VBO |
-| 非零旋转、非等比及负缩放的通用 2D 实例 | 紧凑变换与原 `Transform2D::getMatrix()` 的位置结果在浮点容差内一致 |
-| 固定参考线重绘、拖动参考线及多通道实时更新 | 稳定参考线不上传顶点；拖动位置和读数正常；记录更新及绘制 P95/P99、CPU/GPU 和内存变化 |
-
-上述字节数和提交次数是结构指标，不代表整帧耗时或 FPS 的同比提升。旧实例是 `QMatrix4x4` 加 `QVector4D`，矩阵对象包含内部标记，旧大小应以类型实际布局为准，不能仅按 16 个矩阵浮点数加颜色计算。新格式用 `static_assert` 约束为 40 / 24 字节。PRPD 以直接索引数组替代哈希节点，会增加与相位点数乘幅值箱数成正比的固定索引空间；PRPS 为减少提交次数保留槽容量，槽内未使用的填充实例仍会经过顶点着色器。实际收益与驱动、数据稀疏度和可见通道数有关。
-
----
-
-### 第三轮：针对实际报告的共用绘制优化
-
-用户提供的两份 Release 报告分别为 4 通道 PRPD + PRPS、4 通道仅 PRPS，均为 200 相位点、50 周期/秒/通道、固定量程、DPR 1.75。每张图绘制调用率分别约 9.48 和 18.20 FPS；各图平均绘制耗时合计约 99.0 和 50.6ms。按导出均值和调用次数估算，绘制路径约占总计时的 94% / 92%，数据送入路径不到 0.1%。两份图表数量及单图尺寸不同，只作为定位依据，不视作优化前后对比。
-
-本轮集中调整共用绘制层：
-
-- **坐标文字缓存**：保留原有文字、字体和屏幕坐标计算，用 QPainter 在透明图片上绘制一次，再用每张图独立的纹理和 Qt 纹理绘制器提交。稳定帧不再逐标签测量和绘制文字，也不再进入该控件的 QPainter 绘制引擎。名称、刻度及样式更新会使缓存失效；视图矩阵、投影矩阵、逻辑尺寸、DPR、逻辑 DPI 和应用字体改变时重新生成。纹理使用预乘透明度，并在自身 OpenGL 上下文销毁前释放；分配失败或显式关闭缓存时回退到原路径。
-- **网格真正合批**：在顶点上传时预先生成绘制区间，合并相邻、同类型、完整的独立点、实线段或三角形。相同批次内连续的实线网格和正弦波线段可合并成一次提交。保留原顶点顺序，不合并条带、闭环或不完整的图元，避免新增连接线或改变透明叠色顺序。
-- **分层诊断**：新增坐标网格、文字、数据及参考线的 CPU 分层计时，以及绘制开关和文字缓存对照开关。正常应用默认不启用计时；压力测试在正式计时阶段启用，预热结束后清零。
-
-本轮未调整 PRPD 分箱、频次窗口、PRPS 取峰值、相位及幅值映射。文字采用离屏光栅化，字形边缘的抗锯齿可能与原 OpenGL 文字引擎略有不同，应重点对比 DPR 1 / 1.75 / 2 下的读数、位置、清晰度、方向和透明边缘。新增缓存保留一张与图表物理尺寸相同的 RGBA8 纹理，重建期间另有临时图片；图表类内部布局有变动，库与调用方需要一起重新编译。
-
-图片通过 [Qt 的 DPR 设置](https://doc.qt.io/qt-6/qimage.html#setDevicePixelRatio)保留逻辑坐标，纹理由 [QOpenGLTextureBlitter](https://doc.qt.io/qt-6/qopengltextureblitter.html)按顶端原点提交；使用原始 RGBA 预乘像素上传，不创建 mipmap，不额外降低文字分辨率。
-
-建议用原来的两组负载重测：全部绘制开关开启，先启用文字缓存，再只关闭文字缓存重复一轮，其他条件保持相同。比较 FPS、绘制 P99、界面延迟和文字层耗时；继续关闭坐标网格或数据绘制可定位剩余瓶颈。固定量程和视角、尺寸不变时，“文字缓存绘制帧数”应接近绘制次数，“文字缓存重建帧数”通常很少；预热后重建次数为 0 属于正常情况。如果启用缓存但缓存绘制帧数为 0，需检查是否关闭了文字、隐藏绘图区或发生了回退。
-
-本轮尚未编译运行，暂无新的 FPS 或提速结论。待回归：旋转和缩放 PRPS、拖动参考线、连续改变自动量程、改变名称/字体/刻度、跨屏缩放、反复打开关闭测试窗口，以及合批前后的网格端点和透明叠色。
-
-## 性能压力测试工具
-
-编译 `ProGraphicsExamples`，在左侧 **调试工具 → 性能压力测试** 打开。性能对比使用 **Release**；示例程序现在在创建应用前统一申请 OpenGL 4.1 Core 格式。测试期间主窗口暂停数据生成和动画，关闭测试窗口后恢复原状态。也可以用 `--stress` 直接打开测试窗口，减少主窗口对进程内存基线的影响。
-
-### 建议的测试顺序
-
-1. 固定设备、电源模式、窗口大小、屏幕缩放、驱动和垂直同步设置，关闭其他高负载程序。
-2. 选择“日常负载”，先分别测“仅 PRPD”“仅 PRPS”，再测组合。默认预热 10 秒、计时 60 秒，每组重复 3 次并导出 CSV。基线与优化版使用同一份压测工具、相同参数和种子。
-3. 一次只提高一个变量：通道数按 1 → 2 → 4 → 8 → 16，周期速率按 50 → 100 → 200 → 500 → 1000；再增加相位点数、非底值概率和 PRPS 线数。找到开始出现持续缺口或明显卡顿的档位。
-4. 补测以下预设，分别覆盖普通变化数据、稠密绘制、缓存复用及量程重建。PRPD 正常性能应在 500 周期窗口填满后评估；低速测试需要延长预热。
-5. 另开一轮勾选“隐藏绘图区，继续送入数据”，评估隐藏时的数据处理；再做 30 分钟持续运行，结合系统监视器查看 CPU、GPU 和内存趋势。
-
-| 预设 | 通道 × 相位点 | 周期/秒/通道 | 非底值概率 | PRPS 线数 | 主要覆盖 |
-|------|---------------|---------------|------------|-----------|----------|
-| 日常负载 | 4 × 200 | 50 | 5% | 50 | 常用送入和绘制路径 |
-| 稠密高压 | 8 × 512 | 200 | 100% | 全部采样点 | 多图表、密集实例及上传压力 |
-| 稳态复用 | 4 × 200 | 200 | 100% | 50 | 重复同一周期，检查缓存复用的收益 |
-| 量程变动 | 4 × 512 | 100 | 100% | 50 | 每 32 周期交替高低幅值，自适应量程 |
-
-“通道”表示一份数据源，组合模式下每通道各有一张 PRPD 和一张 PRPS，所以 4 通道对应 8 张图。增加通道时每张图的面积会变小，CSV 记录每张图的逻辑尺寸和 DPR；比较不同版本时应匹配这些字段。计时期间固定外窗大小并收起配置面板，隐藏切换或屏幕缩放导致的尺寸变化会记录在报告中。
-
-### 读数含义
-
-| 指标 | 含义及判断方式 |
-|------|----------------|
-| 目标、实际周期速率及最终缺口 | 实际值按完成全部通道送入的周期数除以实际墙钟时间计算。最终缺口是本轮目标中尚未送入的周期，不会作为已处理数据计算。先看能否持续达到目标，再看耗时。 |
-| 最大积压 | 定时器触发时应送入但尚未送入的周期数，每通道计数。它是时间欠账，没有无界数据队列；正常的 5ms 批量送入也会产生少量瞬时积压。 |
-| 更新平均、P95/P99、最大耗时 | 每张图一次 `addCycleData` 的 CPU 墙钟耗时。PRPD 延后到绘制时的重建计入绘制路径。 |
-| 绘制 FPS、耗时及帧间隔 | FPS 是 `paintGL` 调用率，帧间隔按绘制开始时刻计算；耗时仅覆盖绘制函数的 CPU 提交，不包含函数返回后的 GPU 完成、合成和呈现等待。没有插入 `glFinish`。 |
-| 界面延迟 | 20ms GUI 心跳相对预期间隔的超时部分，显示 P95/P99 和最大值，用来发现输入、绘制和其他 GUI 工作造成的阻塞。 |
-| CPU 和工作集 | Windows 每 500ms 采样整个进程，包括压测工具的开销；1.0 核表示占用一个逻辑核的计算时间。CSV 保存平均 CPU、采样峰值，以及工作集起止值和采样峰值；其他平台显示未采集。 |
-
-可先把**实际速率达到目标的 99%、最终缺口为 0、界面延迟 P99 不超过 20ms、最大不超过 100ms**作为初始业务检查线，再根据 CKP60 的真实交互要求和设备基线调整。超压档位出现缺口用于确定容量，不代表测试工具失败。“完成”只表示计时完成，工具不自动判定性能达标。
-
-绘制频率应结合数据和动画判断：PRPS 默认动画间隔 20ms，实际频率还受系统调度与垂直同步影响；稳态 PRPD 满窗口后可能几乎不重绘，这表示复用生效。不能用每张图的单次耗时均小于 20ms，推断多张图总能达到 50 FPS。GPU 时间、GPU 占用和显存请另用系统监视器或 GPU 抓帧工具记录；[Qt 的绘制与合成机制](https://doc.qt.io/qt-6/qopenglwidget.html#details)也会影响呈现结果。
-
-### 重复运行及 CSV
-
-在可执行文件所在目录运行，例如 PowerShell：
+也可以从可执行文件所在目录运行：
 
 ```powershell
 .\ProGraphicsExamples.exe --stress
 .\ProGraphicsExamples.exe --stress-auto daily.csv --stress-preset daily --stress-warmup 10 --stress-duration 60
-.\ProGraphicsExamples.exe --stress-auto dense.csv --stress-preset dense --stress-warmup 10 --stress-duration 60
 ```
 
-自动预设还支持 `steady` 和 `range`。CSV 路径的父目录需已存在。正常计时结束且成功保存报告返回 0；无效参数、OpenGL 初始化条件不满足、取消或保存失败返回 2。返回 0 不表示达到性能要求，超载数据也会正常导出。需要自定义通道、速率等参数时使用面板。
+预设支持 `daily`（日常负载）、`dense`（稠密高压）、`steady`（重复周期）和 `range`（幅值变化）。CSV 父目录需已存在；自动运行正常完成并保存报告返回 0，参数错误、取消或保存失败返回 2。
 
-CSV 为 UTF-8 BOM，每张图一行，包含本轮配置快照、构建类型、Qt/编译器/系统、渲染设备、尺寸/DPR、吞吐量和统计结果。没有样本的耗时字段留空，不当作 0ms。停止后修改下一轮配置不会改写上一轮报告。手动停止可导出部分结果，预热期间停止没有计时结果。CSV 的“开始隐藏”“结束隐藏”“计时中切换隐藏”“计时中图表尺寸变化”可用于排除条件不同的比较。
+阅读报告时关注：
 
-### 测量边界
+- 实际周期速率与最终缺口：是否能处理目标输入负载。
+- 更新、绘制耗时和界面延迟的 P95/P99：高负载下是否出现明显卡顿。
+- CPU、内存及各绘制层耗时：资源占用是否符合应用要求。
 
-分层统计新增“坐标网格、文字、数据绘制、参考线绘制”的样本数、平均、P95/P99 和最大耗时，面板直接显示各层平均值。坐标层包含背景清除；文字层包含缓存检查、必要时的生成上传及纹理绘制；PRPD 数据层还包含延后执行的统计重建。关闭数据绘制不会停止输入与统计。分层均值针对实际执行该层的帧；估算占比应使用平均耗时乘样本数，不直接相加各层 P99。所有分层数据均为 CPU 墙钟时间，不代表 GPU 执行耗时。
+绘制耗时是 CPU 提交耗时，不代表 GPU 完成时间；FPS 是图表绘制调用率。测试完成或返回 0 只表示报告生成成功，不表示性能达标。
 
-- 数据在计时前按固定种子生成，每通道循环使用 512 个周期，稳态预设使用 1 个；样本库的幅值数据占用单列记录。它不包含真实采集、跨线程排队、解码或设备通信成本。随机数据的非底值概率不等于真实脉冲事件密度；底值为 -75，PRPD 仍统计这些相位，PRPS 在底部不生成竖线。
-- 送入在 GUI 线程进行，每 5ms 尝试一次，每次最多 128 个周期，默认预算 4ms。一组通道更新不可中断，预算是软上限。[Qt 定时器可能延后并合并超时](https://doc.qt.io/qt-6/qtimer.html#accuracy-and-timer-resolution)，所以按墙钟计算欠账。到时后最多再处理一次有界送入片，实际时长包含收尾，不无限清空积压。比较时保持预算相同；隐藏模式只覆盖送入路径，不覆盖延后到绘制时的工作。
-- P95/P99 使用固定大小的分段直方图估计，桶宽从 1μs 逐步增至 10ms，返回桶上界；超过 10 秒的末桶返回最大样本值。平均和最大值使用原始时间累计。统计占用不随周期数增长，没有逐周期日志和文件写入；测量本身仍有计时、统计及界面刷新开销。
-- 内存只有起止值和采样峰值，不能代替长期趋势记录。压力测试验证承载能力与响应表现；频次、幅值、相位、量程及遮挡的绘图正确性仍按前面两轮的验收场景单独回归。
+## 常见问题
 
-用户已编译原压测入口并提供两份实测报告。新增的第三轮渲染改动和分层诊断目前仅完成静态检查，尚无本轮提速比例或达标结论。
+### 为什么数据已经降低，量程还没收缩？
+
+量程考虑所有保留周期。PRPD 中的历史峰值需要随新周期输入退出最近 500 个周期；PRPS 中的峰值需要滚出或被新周期替换。峰值退出后，还要满足跨度比例和等待时间条件，默认是候选跨度不超过当前的 80%，持续 3 秒。
+
+PRPD 停止输入后不再推进统计窗口和量程更新。需要立即清空历史时调用 `resetData()`；需要指定显示范围时调用 `setFixedRange()`。
+
+### 为什么 PRPD 底部有一条红带？
+
+多个周期在同一个低幅值格内累积会形成高频红带。有限底值及低于量程下限的数据也会计入底部格子。先检查输入含义和量程，不能仅凭红带判断数据异常。
+
+### 相位采样点数必须是 200 吗？
+
+不是。先调用 `setPhasePoint(N)`，再输入长度为 N 的周期。改变点数会清空历史，零和负数不接受。PRPD 的幅值分箱数固定为 100，不随相位点数改变。
+
+### PRPS 没显示所有采样点，是数据丢了吗？
+
+默认每周期按相位分成 50 组，显示各组最大幅值。需要逐采样点显示时调用 `setDisplayLineCount(0)`。位于量程下限及以下的值仍不绘制竖线。
 
 ## 许可证
 
-本文档和 ProGraphics 库一样，基于 LGPL-3.0 许可证。
+本文档与 ProGraphics 库一样，基于 LGPL-3.0 许可证。

@@ -62,10 +62,8 @@ private:
     // 动态量程配置（Auto/Adaptive 模式）
     QWidget *m_dynamicConfigWidget;
     QDoubleSpinBox *m_bufferRatioSpin;
-    QDoubleSpinBox *m_responseSpeedSpin;
-    QSpinBox *m_recoveryFramesSpin;
+    QSpinBox *m_shrinkDelaySpin;
     QDoubleSpinBox *m_recoveryRatioSpin;
-    QCheckBox *m_smartAdjustCheck;
     QCheckBox *m_enableRecoveryCheck;
 
     QCheckBox *m_refLinesEnabledCheck;

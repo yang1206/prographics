@@ -93,8 +93,15 @@ void PRPDChart::paintGLObjects() {
                 transform.color = m_frequencyColors[m_frequencyTable[phase][bin]];
             }
         }
+        // 旧文字路径在 QPainter::end() 后关闭混合和深度测试，PRPD 点直接覆盖。
+        // 文字缓存会开启混合，必须在点层明确设置状态，避免缓存开关改变点的颜色。
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
         m_pointRenderer->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
                                       m_pointTransforms, -1.0f, uploadInstanceData);
+        // 后续参考线继续使用自身颜色的透明度。
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         m_pointDataDirty = false;
     }
 
@@ -173,7 +180,8 @@ void PRPDChart::paintAmplitudeLines() {
 
     for (size_t i = 0; i < m_amplitudeLineSpecs.size(); ++i) {
         const AmplitudeLine& spec = m_amplitudeLineSpecs[i];
-        if (!spec.visible) {
+        if (!spec.visible || !std::isfinite(spec.amplitudeDbm) ||
+            spec.amplitudeDbm < m_displayMin || spec.amplitudeDbm > m_displayMax) {
             continue;
         }
 
@@ -198,24 +206,9 @@ void PRPDChart::addCycleData(const std::vector<float>& cycleData) {
         return;
     }
 
-    bool rangeChanged = false;
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            rangeChanged = m_dynamicRange.updateRange(cycleData);
-            break;
-    }
-
+    m_rangeWindow.append(cycleData);
+    updateRangeFromWindow();
     const auto [newDisplayMin, newDisplayMax] = getCurrentRange();
-    if (rangeChanged || newDisplayMin != m_frequencyMin || newDisplayMax != m_frequencyMax) {
-        m_frequencyMin = newDisplayMin;
-        m_frequencyMax = newDisplayMax;
-        updateAxisTicks(newDisplayMin, newDisplayMax);
-        // 同一绘制帧前多次变更量程时，只对最终保留的完整周期重分箱一次。
-        m_frequencyTableDirty = true;
-    }
 
     const bool full = m_cycleBuffer.data.size() == PRPDConstants::MAX_CYCLES;
     const size_t index = full ? static_cast<size_t>(m_cycleBuffer.currentIndex) : m_cycleBuffer.data.size();
@@ -250,6 +243,8 @@ void PRPDChart::addCycleData(const std::vector<float>& cycleData) {
 }
 
 void PRPDChart::changeFrequency(int phaseIdx, BinIndex binIdx, int delta) {
+    // NaN/Inf 不参与统计，也不能作为数组下标。
+    if (binIdx >= PRPDConstants::AMPLITUDE_BINS) return;
     int& frequency = m_frequencyTable[phaseIdx][binIdx];
     const int oldFrequency = frequency;
     if (oldFrequency > 0) --m_frequencyCounts[oldFrequency];
@@ -299,52 +294,49 @@ QVector4D PRPDChart::calculateColor(int frequency) const {
 // ==================== 量程设置 API 实现 ====================
 
 void PRPDChart::setFixedRange(float min, float max) {
+    LinearScale::Range range;
+    if (!LinearScale::normalize(min, max, range, 0.0)) {
+        qWarning() << "PRPD 量程端点必须为有限数值";
+        return;
+    }
     m_rangeMode = RangeMode::Fixed;
-    m_fixedMin = m_configuredMin = min;
-    m_fixedMax = m_configuredMax = max;
-    updateAxisTicks(min, max);
-    rebuildFrequencyTable();
-    update();
+    m_fixedMin = m_configuredMin = range.first;
+    m_fixedMax = m_configuredMax = range.second;
+    applyCurrentRange(true);
 }
 
 void PRPDChart::setAutoRange(const DynamicRange::DynamicRangeConfig& config) {
+    const auto seed = getCurrentRange();
     m_rangeMode = RangeMode::Auto;
     m_dynamicRange.setConfig(config);
-
-    auto [currentMin, currentMax] = m_dynamicRange.getDisplayRange();
-    m_configuredMin               = currentMin;
-    m_configuredMax               = currentMax;
-
-    updateAxisTicks(currentMin, currentMax);
-    rebuildFrequencyTable();
-    update();
+    m_dynamicRange.setInitialRange(seed.first, seed.second);
+    m_dynamicRange.setUseInitialRange(false);
+    m_configuredMin = seed.first;
+    m_configuredMax = seed.second;
+    updateRangeFromWindow();
+    applyCurrentRange(true);
 }
 
 void PRPDChart::setAdaptiveRange(float initialMin, float initialMax, const DynamicRange::DynamicRangeConfig& config) {
+    LinearScale::Range range;
+    if (!LinearScale::normalize(initialMin, initialMax, range, 0.0)) {
+        qWarning() << "PRPD 初始量程端点必须为有限数值";
+        return;
+    }
     m_rangeMode     = RangeMode::Adaptive;
-    m_configuredMin = initialMin;
-    m_configuredMax = initialMax;
-
+    m_configuredMin = range.first;
+    m_configuredMax = range.second;
     m_dynamicRange.setConfig(config);
-    m_dynamicRange.setInitialRange(initialMin, initialMax);
-
-    auto [currentMin, currentMax] = m_dynamicRange.getDisplayRange();
-    updateAxisTicks(currentMin, currentMax);
-    rebuildFrequencyTable();
-    update();
+    m_dynamicRange.setInitialRange(range.first, range.second);
+    m_dynamicRange.setUseInitialRange(true);
+    updateRangeFromWindow();
+    applyCurrentRange(true);
 }
 
 // ==================== 量程查询 API 实现 ====================
 
 std::pair<float, float> PRPDChart::getCurrentRange() const {
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            return {m_fixedMin, m_fixedMax};
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            return m_dynamicRange.getDisplayRange();
-    }
-    return {0, 0};
+    return {m_displayMin, m_displayMax};
 }
 
 std::pair<float, float> PRPDChart::getConfiguredRange() const {
@@ -356,10 +348,7 @@ std::pair<float, float> PRPDChart::getConfiguredRange() const {
 void PRPDChart::updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig& config) {
     if (m_rangeMode == RangeMode::Auto || m_rangeMode == RangeMode::Adaptive) {
         m_dynamicRange.setConfig(config);
-        auto [currentMin, currentMax] = m_dynamicRange.getDisplayRange();
-        updateAxisTicks(currentMin, currentMax);
-        rebuildFrequencyTable();
-        update();
+        forceUpdateRange();
     }
 }
 
@@ -368,7 +357,7 @@ void PRPDChart::switchToFixedRange(float min, float max) {
 }
 
 void PRPDChart::switchToAutoRange() {
-    setAutoRange();
+    setAutoRange(m_dynamicRange.getConfig());
 }
 
 // ==================== 硬限制 API 实现 ====================
@@ -398,15 +387,47 @@ bool PRPDChart::isHardLimitsEnabled() const {
 // ==================== 私有方法实现 ====================
 
 void PRPDChart::forceUpdateRange() {
-    auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
-    updateAxisTicks(newMin, newMax);
-    rebuildFrequencyTable();
+    updateRangeFromWindow();
+    applyCurrentRange(true);
+}
+
+void PRPDChart::updateRangeFromWindow() {
+    LinearScale::Range bounds;
+    if (m_rangeMode != RangeMode::Fixed && m_rangeWindow.bounds(bounds)) {
+        m_dynamicRange.updateBounds(bounds.first, bounds.second);
+        applyCurrentRange();
+    }
+}
+
+void PRPDChart::applyCurrentRange(bool forceTicks) {
+    const auto range = m_rangeMode == RangeMode::Fixed
+        ? LinearScale::Range{m_fixedMin, m_fixedMax} : m_dynamicRange.getDisplayRange();
+    const bool changed = range != getCurrentRange();
+    if (!changed && !forceTicks) return;
+    m_displayMin = range.first;
+    m_displayMax = range.second;
+    updateAxisTicks(range.first, range.second);
+    if (changed) {
+        // 刻度与映射先共同提交，保留周期在下次绘制前只重分箱一次。
+        m_frequencyMin = range.first;
+        m_frequencyMax = range.second;
+        m_frequencyTableDirty = true;
+        m_pointCoordinatesDirty = true;
+        m_pointDataDirty = true;
+    }
     update();
+    if (changed) emit rangeChanged(range.first, range.second);
 }
 
 void PRPDChart::updateAxisTicks(float min, float max) {
     int targetTicks = m_dynamicRange.getConfig().targetTickCount;
-    float step = calculateNiceTickStep(max - min, targetTicks);
+    // 固定量程沿用旧刻度选择，自动量程与新的拟合算法使用相同步长。
+    const double requestedStep = m_rangeMode == RangeMode::Fixed
+        ? LinearScale::ceilingTickStep(static_cast<double>(max) - min, targetTicks)
+        : LinearScale::tickStep(static_cast<double>(max) - min, targetTicks);
+    const float step = static_cast<float>(std::clamp(requestedStep,
+        static_cast<double>(std::numeric_limits<float>::denorm_min()),
+        static_cast<double>(std::numeric_limits<float>::max())));
     setTicksRange('y', min, max, step);
 }
 
@@ -424,16 +445,7 @@ float PRPDChart::mapPhaseToGL(float phase) const {
 }
 
 void PRPDChart::queryDisplayedAmplitudeRange(float &displayMin, float &displayMax) const {
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            displayMin = m_fixedMin;
-            displayMax = m_fixedMax;
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            std::tie(displayMin, displayMax) = m_dynamicRange.getDisplayRange();
-            break;
-    }
+    std::tie(displayMin, displayMax) = getCurrentRange();
 }
 
 float PRPDChart::mapAmplitudeToGL(float amplitude) const {
@@ -448,7 +460,8 @@ float PRPDChart::mapAmplitudeToGL(float amplitude) const {
         return PRPDConstants::GL_AXIS_LENGTH;
     }
 
-    return (amplitude - displayMin) / (displayMax - displayMin) * PRPDConstants::GL_AXIS_LENGTH;
+    return static_cast<float>((static_cast<double>(amplitude) - displayMin) /
+        (static_cast<double>(displayMax) - displayMin) * PRPDConstants::GL_AXIS_LENGTH);
 }
 
 QVector3D PRPDChart::unprojectWidgetToChartPlane(const QPoint &widgetPos) const {
@@ -507,7 +520,7 @@ float PRPDChart::amplitudeFromWidgetPos(const QPoint &pos) const {
     } else if (chartY >= L) {
         linearAmp = displayMax;
     } else {
-        linearAmp = (chartY / L) * (displayMax - displayMin) + displayMin;
+        linearAmp = static_cast<float>((chartY / L) * (static_cast<double>(displayMax) - displayMin) + displayMin);
     }
     return snapDragAmplitude(linearAmp);
 }
@@ -534,7 +547,9 @@ int PRPDChart::pickAmplitudeLineAt(const QPoint &widgetPos) const {
     const float midX       = 0.5f * (x0 + x1);
 
     for (size_t i = 0; i < m_amplitudeLineSpecs.size(); ++i) {
-        if (!m_amplitudeLineSpecs[i].visible) {
+        const auto& spec = m_amplitudeLineSpecs[i];
+        if (!spec.visible || !std::isfinite(spec.amplitudeDbm) ||
+            spec.amplitudeDbm < m_displayMin || spec.amplitudeDbm > m_displayMax) {
             continue;
         }
         const float yGl      = mapAmplitudeToGL(m_amplitudeLineSpecs[i].amplitudeDbm);
@@ -653,6 +668,7 @@ void PRPDChart::rebuildFrequencyTable() {
 }
 
 PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude, float displayMin, float displayMax) {
+    if (!std::isfinite(amplitude)) return PRPDConstants::AMPLITUDE_BINS;
     if (amplitude <= displayMin) {
         return 0;
     }
@@ -660,12 +676,8 @@ PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude, float displ
         return PRPDConstants::AMPLITUDE_BINS - 1;
     }
 
-    float range = displayMax - displayMin;
-    if (range < 1e-6f) {
-        return PRPDConstants::AMPLITUDE_BINS / 2;
-    }
-
-    float normalizedPos = (amplitude - displayMin) / range;
+    const double range = static_cast<double>(displayMax) - displayMin;
+    float normalizedPos = static_cast<float>((static_cast<double>(amplitude) - displayMin) / range);
     normalizedPos       = std::max(0.0f, std::min(0.9999f, normalizedPos));
     int binIndex        = static_cast<int>(normalizedPos * PRPDConstants::AMPLITUDE_BINS);
 
@@ -673,25 +685,14 @@ PRPDChart::BinIndex PRPDChart::getAmplitudeBinIndex(float amplitude, float displ
 }
 
 float PRPDChart::getBinCenterAmplitude(BinIndex binIndex) const {
-    float displayMin = m_fixedMin, displayMax = m_fixedMax;
-
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            displayMin = m_fixedMin;
-            displayMax = m_fixedMax;
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            std::tie(displayMin, displayMax) = m_dynamicRange.getDisplayRange();
-            break;
-    }
+    const auto [displayMin, displayMax] = getCurrentRange();
 
     if (binIndex >= PRPDConstants::AMPLITUDE_BINS) {
         return displayMin;
     }
 
     float normalizedPos = (binIndex + 0.5f) / PRPDConstants::AMPLITUDE_BINS;
-    return displayMin + normalizedPos * (displayMax - displayMin);
+    return static_cast<float>(displayMin + normalizedPos * (static_cast<double>(displayMax) - displayMin));
 }
 
 void PRPDChart::setPhasePoint(int phasePoint) {

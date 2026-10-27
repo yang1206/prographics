@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <random>
 #include "prographics/utils/utils.h"
+#include <limits>
 
 namespace ProGraphics {
 static_assert(PRPSConstants::MAX_LINE_GROUPS == PRPSRenderer::SlotCount);
@@ -103,20 +104,10 @@ void PRPSChart::resetData() {
     m_recycledGroups.clear();
     doneCurrent();
     m_nextRenderSlot = 0;
-
-    float displayMin;
-    float displayMax;
-    if (m_rangeMode == RangeMode::Fixed) {
-        displayMin = m_fixedMin;
-        displayMax = m_fixedMax;
-    } else {
-        displayMin = m_configuredMin;
-        displayMax = m_configuredMax;
-        m_dynamicRange.reset();
-        m_dynamicRange.setInitialRange(displayMin, displayMax);
-    }
-
-    updateAxisTicks(displayMin, displayMax);
+    m_rangeWindow.clear();
+    m_lineTransformsDirty = false;
+    m_dynamicRange.reset();
+    applyCurrentRange(true);
     update();
 }
 
@@ -161,6 +152,10 @@ void PRPSChart::initializeGLObjects() {
 }
 
 void PRPSChart::paintGLObjects() {
+    if (m_lineTransformsDirty) {
+        auto timing = measureRenderStage(RenderStage::Data);
+        rebuildLineGroups();
+    }
     Coordinate3D::paintGLObjects();
 
     const bool drawPulses = renderOptions().data && !m_lineGroups.empty();
@@ -279,7 +274,8 @@ void PRPSChart::paintPhaseAmplitudePlaneLines() {
 
     for (size_t i = 0; i < m_phaseAmplitudePlaneSpecs.size(); ++i) {
         const PhaseAmplitudePlaneLine& spec = m_phaseAmplitudePlaneSpecs[i];
-        if (!spec.visible) {
+        if (!spec.visible || !std::isfinite(spec.amplitudeDbm) ||
+            spec.amplitudeDbm < m_displayMin || spec.amplitudeDbm > m_displayMax) {
             continue;
         }
 
@@ -305,22 +301,8 @@ void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
         return;
     }
 
-    bool rangeChanged = false;
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            rangeChanged = m_dynamicRange.updateRange(cycleData);
-            break;
-    }
-
-    if (rangeChanged) {
-        auto [newDisplayMin, newDisplayMax] = m_dynamicRange.getDisplayRange();
-        updateAxisTicks(newDisplayMin, newDisplayMax);
-        recalculateLineGroups();
-    }
-
+    m_rangeWindow.append(cycleData);
+    updateRangeFromWindow();
     processCycle(cycleData);
     updateAnimationState();
     if (m_paused) {
@@ -346,6 +328,7 @@ void PRPSChart::buildLineTransformsFromCycle(const std::vector<float>& cycleData
     const int   B    = m_displayLineCount;
 
     auto pushLine = [&](float phase, float amplitudeSample) {
+        if (!std::isfinite(amplitudeSample)) return;
         const float glX = mapPhaseToGL(phase);
         const float glY = mapAmplitudeToGL(amplitudeSample);
         if (glY <= 0.0f) {
@@ -378,9 +361,10 @@ void PRPSChart::buildLineTransformsFromCycle(const std::vector<float>& cycleData
         if (i0 >= i1) {
             continue;
         }
-        float peak = cycleData[static_cast<size_t>(i0)];
-        for (int i = i0 + 1; i < i1; ++i) {
-            peak = std::max(peak, cycleData[static_cast<size_t>(i)]);
+        float peak = -std::numeric_limits<float>::infinity();
+        for (int i = i0; i < i1; ++i) {
+            const float sample = cycleData[static_cast<size_t>(i)];
+            if (std::isfinite(sample)) peak = std::max(peak, sample);
         }
         const float phase = m_phaseMin + (static_cast<float>(b) + 0.5f) * span / static_cast<float>(B);
         pushLine(phase, peak);
@@ -409,7 +393,8 @@ void PRPSChart::processCycle(const std::vector<float>& cycleData) {
     const int cap = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints) ? m_displayLineCount : m_phasePoints;
     newGroup->transforms.reserve(static_cast<size_t>(cap));
 
-    buildLineTransformsFromCycle(cycleData, newGroup->transforms);
+    if (m_lineTransformsDirty) newGroup->transforms.clear();
+    else buildLineTransformsFromCycle(cycleData, newGroup->transforms);
 
     m_lineGroups.push_back(std::move(newGroup));
 }
@@ -437,6 +422,8 @@ void PRPSChart::updatePRPSAnimation() {
     if (needCleanup) {
         cleanupInactiveGroups();
     }
+    // 即使停止送入，历史周期退出后也按同一时间滞回规则更新量程。
+    updateRangeFromWindow();
 
     updateAnimationState();
     update();
@@ -445,6 +432,7 @@ void PRPSChart::updatePRPSAnimation() {
 void PRPSChart::cleanupInactiveGroups() {
     for (auto it = m_lineGroups.begin(); it != m_lineGroups.end();) {
         if (!(*it)->isActive) {
+            m_rangeWindow.removeOldest();
             // 保留 CPU 数据容量供下一个周期复用，GPU 槽由环形批量渲染器管理。
             m_recycledGroups.push_back(std::move(*it));
             it = m_lineGroups.erase(it);
@@ -457,52 +445,49 @@ void PRPSChart::cleanupInactiveGroups() {
 // ==================== 量程设置 API 实现 ====================
 
 void PRPSChart::setFixedRange(float min, float max) {
+    LinearScale::Range range;
+    if (!LinearScale::normalize(min, max, range, 0.0)) {
+        qWarning() << "PRPS 量程端点必须为有限数值";
+        return;
+    }
     m_rangeMode = RangeMode::Fixed;
-    m_fixedMin = m_configuredMin = min;
-    m_fixedMax = m_configuredMax = max;
-    updateAxisTicks(min, max);
-    recalculateLineGroups();
-    update();
+    m_fixedMin = m_configuredMin = range.first;
+    m_fixedMax = m_configuredMax = range.second;
+    applyCurrentRange(true);
 }
 
 void PRPSChart::setAutoRange(const DynamicRange::DynamicRangeConfig& config) {
+    const auto seed = getCurrentRange();
     m_rangeMode = RangeMode::Auto;
     m_dynamicRange.setConfig(config);
-
-    auto [currentMin, currentMax] = m_dynamicRange.getDisplayRange();
-    m_configuredMin               = currentMin;
-    m_configuredMax               = currentMax;
-
-    updateAxisTicks(currentMin, currentMax);
-    recalculateLineGroups();
-    update();
+    m_dynamicRange.setInitialRange(seed.first, seed.second);
+    m_dynamicRange.setUseInitialRange(false);
+    m_configuredMin = seed.first;
+    m_configuredMax = seed.second;
+    updateRangeFromWindow();
+    applyCurrentRange(true);
 }
 
 void PRPSChart::setAdaptiveRange(float initialMin, float initialMax, const DynamicRange::DynamicRangeConfig& config) {
+    LinearScale::Range range;
+    if (!LinearScale::normalize(initialMin, initialMax, range, 0.0)) {
+        qWarning() << "PRPS 初始量程端点必须为有限数值";
+        return;
+    }
     m_rangeMode     = RangeMode::Adaptive;
-    m_configuredMin = initialMin;
-    m_configuredMax = initialMax;
-
+    m_configuredMin = range.first;
+    m_configuredMax = range.second;
     m_dynamicRange.setConfig(config);
-    m_dynamicRange.setInitialRange(initialMin, initialMax);
-
-    auto [currentMin, currentMax] = m_dynamicRange.getDisplayRange();
-    updateAxisTicks(currentMin, currentMax);
-    recalculateLineGroups();
-    update();
+    m_dynamicRange.setInitialRange(range.first, range.second);
+    m_dynamicRange.setUseInitialRange(true);
+    updateRangeFromWindow();
+    applyCurrentRange(true);
 }
 
 // ==================== 量程查询 API 实现 ====================
 
 std::pair<float, float> PRPSChart::getCurrentRange() const {
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            return {m_fixedMin, m_fixedMax};
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            return m_dynamicRange.getDisplayRange();
-    }
-    return {0, 0};
+    return {m_displayMin, m_displayMax};
 }
 
 std::pair<float, float> PRPSChart::getConfiguredRange() const {
@@ -514,10 +499,7 @@ std::pair<float, float> PRPSChart::getConfiguredRange() const {
 void PRPSChart::updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig& config) {
     if (m_rangeMode == RangeMode::Auto || m_rangeMode == RangeMode::Adaptive) {
         m_dynamicRange.setConfig(config);
-        auto [currentMin, currentMax] = m_dynamicRange.getDisplayRange();
-        updateAxisTicks(currentMin, currentMax);
-        recalculateLineGroups();
-        update();
+        forceUpdateRange();
     }
 }
 
@@ -526,7 +508,7 @@ void PRPSChart::switchToFixedRange(float min, float max) {
 }
 
 void PRPSChart::switchToAutoRange() {
-    setAutoRange();
+    setAutoRange(m_dynamicRange.getConfig());
 }
 
 // ==================== 硬限制 API 实现 ====================
@@ -556,15 +538,39 @@ bool PRPSChart::isHardLimitsEnabled() const {
 // ==================== 私有方法实现 ====================
 
 void PRPSChart::forceUpdateRange() {
-    auto [newMin, newMax] = m_dynamicRange.getDisplayRange();
-    updateAxisTicks(newMin, newMax);
-    recalculateLineGroups();
+    updateRangeFromWindow();
+    applyCurrentRange(true);
+}
+
+void PRPSChart::updateRangeFromWindow() {
+    LinearScale::Range bounds;
+    if (m_rangeMode != RangeMode::Fixed && m_rangeWindow.bounds(bounds)) {
+        m_dynamicRange.updateBounds(bounds.first, bounds.second);
+        applyCurrentRange();
+    }
+}
+
+void PRPSChart::applyCurrentRange(bool forceTicks) {
+    const auto range = m_rangeMode == RangeMode::Fixed
+        ? LinearScale::Range{m_fixedMin, m_fixedMax} : m_dynamicRange.getDisplayRange();
+    const bool changed = range != getCurrentRange();
+    if (!changed && !forceTicks) return;
+    m_displayMin = range.first;
+    m_displayMax = range.second;
+    updateAxisTicks(range.first, range.second);
+    if (changed) recalculateLineGroups();
     update();
+    if (changed) emit rangeChanged(range.first, range.second);
 }
 
 void PRPSChart::updateAxisTicks(float min, float max) {
     int targetTicks = m_dynamicRange.getConfig().targetTickCount;
-    float step = calculateNiceTickStep(max - min, targetTicks);
+    const double requestedStep = m_rangeMode == RangeMode::Fixed
+        ? LinearScale::ceilingTickStep(static_cast<double>(max) - min, targetTicks)
+        : LinearScale::tickStep(static_cast<double>(max) - min, targetTicks);
+    const float step = static_cast<float>(std::clamp(requestedStep,
+        static_cast<double>(std::numeric_limits<float>::denorm_min()),
+        static_cast<double>(std::numeric_limits<float>::max())));
     setTicksRange('y', min, max, step);
 }
 
@@ -592,18 +598,7 @@ float PRPSChart::mapPhaseToGL(float phase) const {
 }
 
 float PRPSChart::mapAmplitudeToGL(float amplitude) const {
-    float displayMin = m_fixedMin, displayMax = m_fixedMax;
-
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            displayMin = m_fixedMin;
-            displayMax = m_fixedMax;
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            std::tie(displayMin, displayMax) = m_dynamicRange.getDisplayRange();
-            break;
-    }
+    const auto [displayMin, displayMax] = getCurrentRange();
 
     if (amplitude < displayMin) {
         return 0.0f;
@@ -612,7 +607,8 @@ float PRPSChart::mapAmplitudeToGL(float amplitude) const {
         return PRPSConstants::GL_AXIS_LENGTH;
     }
 
-    return (amplitude - displayMin) / (displayMax - displayMin) * PRPSConstants::GL_AXIS_LENGTH;
+    return static_cast<float>((static_cast<double>(amplitude) - displayMin) /
+        (static_cast<double>(displayMax) - displayMin) * PRPSConstants::GL_AXIS_LENGTH);
 }
 
 float PRPSChart::mapGLToPhase(float glX) const {
@@ -620,23 +616,18 @@ float PRPSChart::mapGLToPhase(float glX) const {
 }
 
 float PRPSChart::mapGLToAmplitude(float glY) const {
-    float displayMin = m_fixedMin, displayMax = m_fixedMax;
-
-    switch (m_rangeMode) {
-        case RangeMode::Fixed:
-            displayMin = m_fixedMin;
-            displayMax = m_fixedMax;
-            break;
-        case RangeMode::Auto:
-        case RangeMode::Adaptive:
-            std::tie(displayMin, displayMax) = m_dynamicRange.getDisplayRange();
-            break;
-    }
-
-    return glY / PRPSConstants::GL_AXIS_LENGTH * (displayMax - displayMin) + displayMin;
+    const auto [displayMin, displayMax] = getCurrentRange();
+    return static_cast<float>(glY / PRPSConstants::GL_AXIS_LENGTH *
+        (static_cast<double>(displayMax) - displayMin) + displayMin);
 }
 
 void PRPSChart::recalculateLineGroups() {
+    // 一帧前可能送入多个周期，历史映射只按最终量程重建一次。
+    m_lineTransformsDirty = true;
+    update();
+}
+
+void PRPSChart::rebuildLineGroups() {
     const int cap = (m_displayLineCount > 0 && m_displayLineCount < m_phasePoints) ? m_displayLineCount : m_phasePoints;
 
     for (auto& group : m_lineGroups) {
@@ -646,7 +637,7 @@ void PRPSChart::recalculateLineGroups() {
         group->instanceBufferDirty = true;
     }
 
-    update();
+    m_lineTransformsDirty = false;
 }
 
 // ==================== 暂停/恢复 API 实现 ====================
