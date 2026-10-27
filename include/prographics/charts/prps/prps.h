@@ -189,6 +189,7 @@ namespace ProGraphics {
     /**
      * @brief 添加一个周期的放电数据
      * @param cycleData 幅值数组，长度必须等于当前配置的相位采样点数
+     * 第 i 点相位为 min + i * (max - min) / N，周期范围左闭右开。
      */
     void addCycleData(const std::vector<float> &cycleData);
 
@@ -198,7 +199,9 @@ namespace ProGraphics {
     void setThreshold(float threshold) { m_threshold = threshold; }
 
     /**
-     * @brief 设置相位范围
+     * @brief 设置周期相位范围 [min, max)，默认 [0, 360)
+     * @param min 有限下限，必须小于 max；无效范围被拒绝
+     * @param max 有限上限；同时更新保留周期的相位映射及刻度，不清空数据
      */
     void setPhaseRange(float min, float max);
 
@@ -212,6 +215,7 @@ namespace ProGraphics {
      * @brief 设置每周期绘制的竖线数量（分桶峰值降采样）
      *
      * 当 count 大于等于每周期采样点数，或 count &lt;= 0 时，恢复为每个采样点一根线（与原先一致）。
+     * 分桶后保留峰值原采样点的相位；同幅值取桶内最早有效点。
      */
     void setDisplayLineCount(int count);
 
@@ -245,7 +249,20 @@ namespace ProGraphics {
     void setUpdateInterval(int intervalMs);
 
     /**
-     * @brief 重置所有数据，保留阈值、显示及暂停配置
+     * @brief 设置滚动动画的时间倍率，默认 1.0，仅作用于当前图表
+     * @param rate 正有限数，例如 0.1、0.2、0.5、1.0；非法值被拒绝并保留原倍率
+     * 切换时按旧倍率结算已运行的时间，不重置已有周期；0 不表示暂停，请使用 pause()/resume()。
+     * 暂停或隐藏时只保存倍率，恢复后生效；不改变刷新间隔或输入周期的含义。
+     */
+    void setPlaybackRate(double rate);
+
+    /**
+     * @brief 获取当前滚动动画的时间倍率
+     */
+    double playbackRate() const { return m_playbackRate; }
+
+    /**
+     * @brief 重置所有数据，保留阈值、显示、滚动倍率及暂停配置
      */
     void resetData();
 
@@ -337,6 +354,7 @@ namespace ProGraphics {
     QTimer m_animationTimer;
     QElapsedTimer m_animationClock;
     float m_prpsScrollSpeed = 5.0f; ///< 每秒移动距离，等同于原来每 20ms 移动 0.1
+    double m_playbackRate = 1.0; ///< 当前实例的滚动动画时间倍率
 
     DynamicRange m_dynamicRange{-75.0f, -30.0f, DynamicRange::DynamicRangeConfig()};
 
@@ -371,7 +389,7 @@ namespace ProGraphics {
      */
     void buildLineTransformsFromCycle(const std::vector<float> &cycleData, std::vector<Transform2D> &out) const;
 
-    float mapPhaseToGL(float phase) const;
+    float mapPhaseToGL(double phase) const;
 
     float mapAmplitudeToGL(float amplitude) const;
 

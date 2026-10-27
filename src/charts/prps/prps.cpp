@@ -1,8 +1,10 @@
 #include "prographics/charts/prps/prps.h"
 #include "core/renderer/prps_renderer_p.h"
+#include "charts/cycle_phase_p.h"
 #include <QHideEvent>
 #include <QShowEvent>
 #include <algorithm>
+#include <cmath>
 #include <random>
 #include "prographics/utils/utils.h"
 #include <limits>
@@ -117,6 +119,20 @@ void PRPSChart::setUpdateInterval(int intervalMs) {
         return;
     }
     m_animationTimer.setInterval(intervalMs);
+}
+
+void PRPSChart::setPlaybackRate(double rate) {
+    if (!std::isfinite(rate) || rate <= 0.0) {
+        qWarning() << "PRPS 滚动动画倍率必须为正有限数:" << rate;
+        return;
+    }
+    if (rate == m_playbackRate) return;
+
+    // 先按旧倍率推进到切换时刻；暂停或隐藏时不推进，也不启动动画。
+    if (m_animationTimer.isActive()) {
+        updatePRPSAnimation();
+    }
+    m_playbackRate = rate;
 }
 
 void PRPSChart::showEvent(QShowEvent* event) {
@@ -324,11 +340,8 @@ void PRPSChart::buildLineTransformsFromCycle(const std::vector<float>& cycleData
         return;
     }
 
-    const float span = m_phaseMax - m_phaseMin;
-    const int   B    = m_displayLineCount;
-
-    auto pushLine = [&](float phase, float amplitudeSample) {
-        if (!std::isfinite(amplitudeSample)) return;
+    auto pushLine = [&](size_t sampleIndex, float amplitudeSample) {
+        const double phase = CyclePhase::samplePhase(sampleIndex, cycleData.size(), m_phaseMin, m_phaseMax);
         const float glX = mapPhaseToGL(phase);
         const float glY = mapAmplitudeToGL(amplitudeSample);
         if (glY <= 0.0f) {
@@ -342,33 +355,7 @@ void PRPSChart::buildLineTransformsFromCycle(const std::vector<float>& cycleData
         out.push_back(transform);
     };
 
-    if (B <= 0 || B >= N) {
-        if (N == 1) {
-            const float phase = 0.5f * (m_phaseMin + m_phaseMax);
-            pushLine(phase, cycleData[0]);
-            return;
-        }
-        for (int i = 0; i < N; ++i) {
-            const float phase = static_cast<float>(i) / static_cast<float>(N - 1) * m_phaseMax;
-            pushLine(phase, cycleData[i]);
-        }
-        return;
-    }
-
-    for (int b = 0; b < B; ++b) {
-        const int i0 = b * N / B;
-        const int i1 = (b + 1) * N / B;
-        if (i0 >= i1) {
-            continue;
-        }
-        float peak = -std::numeric_limits<float>::infinity();
-        for (int i = i0; i < i1; ++i) {
-            const float sample = cycleData[static_cast<size_t>(i)];
-            if (std::isfinite(sample)) peak = std::max(peak, sample);
-        }
-        const float phase = m_phaseMin + (static_cast<float>(b) + 0.5f) * span / static_cast<float>(B);
-        pushLine(phase, peak);
-    }
+    CyclePhase::forEachPeak(cycleData, m_displayLineCount, pushLine);
 }
 
 void PRPSChart::processCycle(const std::vector<float>& cycleData) {
@@ -405,8 +392,11 @@ void PRPSChart::updatePRPSAnimation() {
         return;
     }
 
-    const float displacement = m_prpsScrollSpeed *
-        static_cast<float>(m_animationClock.nsecsElapsed()) / 1000000000.0f;
+    const double elapsedSeconds = static_cast<double>(m_animationClock.nsecsElapsed()) / 1000000000.0;
+    // 达到整个滚动跨度的位移已足以让所有周期退出，限制转换范围以兼容极大的有限倍率。
+    const float displacement = static_cast<float>(std::min(
+        static_cast<double>(PRPSConstants::MAX_Z_POSITION - PRPSConstants::MIN_Z_POSITION),
+        m_prpsScrollSpeed * elapsedSeconds * m_playbackRate));
     m_animationClock.start();
     bool needCleanup = false;
 
@@ -575,10 +565,15 @@ void PRPSChart::updateAxisTicks(float min, float max) {
 }
 
 void PRPSChart::setPhaseRange(float min, float max) {
+    if (!CyclePhase::validRange(min, max)) {
+        qWarning() << "PRPS 相位范围必须为有限数值且下限小于上限";
+        return;
+    }
+    if (min == m_phaseMin && max == m_phaseMax) return;
     m_phaseMin = min;
     m_phaseMax = max;
-    setTicksRange('x', min, max, 85);
-    update();
+    setTicksRange('x', min, max, CyclePhase::tickStep(min, max));
+    recalculateLineGroups();
 }
 
 void PRPSChart::setPhasePoint(int phasePoint) {
@@ -593,8 +588,8 @@ void PRPSChart::setPhasePoint(int phasePoint) {
     resetData();
 }
 
-float PRPSChart::mapPhaseToGL(float phase) const {
-    return (phase - m_phaseMin) / (m_phaseMax - m_phaseMin) * PRPSConstants::GL_AXIS_LENGTH;
+float PRPSChart::mapPhaseToGL(double phase) const {
+    return CyclePhase::toPosition(phase, m_phaseMin, m_phaseMax, PRPSConstants::GL_AXIS_LENGTH);
 }
 
 float PRPSChart::mapAmplitudeToGL(float amplitude) const {
@@ -612,7 +607,7 @@ float PRPSChart::mapAmplitudeToGL(float amplitude) const {
 }
 
 float PRPSChart::mapGLToPhase(float glX) const {
-    return glX / PRPSConstants::GL_AXIS_LENGTH * (m_phaseMax - m_phaseMin) + m_phaseMin;
+    return CyclePhase::fromPosition(glX, m_phaseMin, m_phaseMax, PRPSConstants::GL_AXIS_LENGTH);
 }
 
 float PRPSChart::mapGLToAmplitude(float glY) const {

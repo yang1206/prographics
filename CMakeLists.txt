@@ -10,7 +10,7 @@ project(ProGraphics
 # 设置CMake选项
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
-option(PROGRAPHICS_BUILD_TESTS "Build deterministic range regression tests" OFF)
+option(PROGRAPHICS_BUILD_TESTS "Build deterministic numeric regression tests" OFF)
 option(PROGRAPHICS_INSTALL "Install ProGraphics targets" ${PROJECT_IS_TOP_LEVEL})
 
 # 设置CMake变量
@@ -231,4 +231,13 @@ if (PROGRAPHICS_BUILD_TESTS)
         target_compile_options(ProGraphicsRangeTests PRIVATE /utf-8)
     endif ()
     add_test(NAME ProGraphics.Range COMMAND ProGraphicsRangeTests)
+
+    add_executable(ProGraphicsPhaseTests tests/phase_tests.cpp)
+    set_target_properties(ProGraphicsPhaseTests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_include_directories(ProGraphicsPhaseTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(ProGraphicsPhaseTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(ProGraphicsPhaseTests PRIVATE /utf-8)
+    endif ()
+    add_test(NAME ProGraphics.Phase COMMAND ProGraphicsPhaseTests)
 endif ()

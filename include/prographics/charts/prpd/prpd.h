@@ -154,11 +154,14 @@ namespace ProGraphics {
         /**
          * @brief 添加一个周期的放电数据
          * @param cycleData 幅值数组，长度必须等于当前配置的相位采样点数
+         * 第 i 点相位为 min + i * (max - min) / N，周期范围左闭右开。
          */
         void addCycleData(const std::vector<float> &cycleData);
 
         /**
-         * @brief 设置相位范围
+         * @brief 设置周期相位范围 [min, max)，默认 [0, 360)
+         * @param min 有限下限，必须小于 max；无效范围被拒绝
+         * @param max 有限上限；同时更新保留周期的相位映射及刻度，不清空数据
          */
         void setPhaseRange(float min, float max);
 
@@ -376,7 +379,7 @@ namespace ProGraphics {
 
         void changeFrequency(int phaseIdx, BinIndex binIdx, int delta);
 
-        float mapPhaseToGL(float phase) const;
+        float mapPhaseToGL(double phase) const;
 
         float mapAmplitudeToGL(float amplitude) const;
 

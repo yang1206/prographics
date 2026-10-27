@@ -1,7 +1,7 @@
 #include "prographics/charts/prpd/prpd.h"
-#include "prographics/charts/prps/prps.h"
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
+#include "charts/cycle_phase_p.h"
 #include <QMouseEvent>
 #include <QOpenGLWidget>
 #include <cmath>
@@ -17,7 +17,7 @@ PRPDChart::PRPDChart(QWidget* parent) : Coordinate2D(parent) {
     m_fixedMin = m_configuredMin = -75.0f;
     m_fixedMax = m_configuredMax = -30.0f;
 
-    setTicksRange('x', PRPSConstants::PHASE_MIN, PRPSConstants::PHASE_MAX, 90);
+    setTicksRange('x', PRPDConstants::PHASE_MIN, PRPDConstants::PHASE_MAX, 90);
     updateAxisTicks(m_fixedMin, m_fixedMax);
     setAxisVisible('z', false);
     setGridVisible(true);
@@ -69,7 +69,7 @@ void PRPDChart::paintGLObjects() {
             if (m_pointCoordinatesDirty) {
                 m_phasePositions.resize(static_cast<size_t>(m_phasePoints));
                 for (int i = 0; i < m_phasePoints; ++i) {
-                    const float phase = static_cast<float>(i) * (PRPDConstants::PHASE_MAX / m_phasePoints);
+                    const double phase = CyclePhase::samplePhase(i, m_phasePoints, m_phaseMin, m_phaseMax);
                     m_phasePositions[static_cast<size_t>(i)] = mapPhaseToGL(phase);
                 }
                 for (BinIndex bin = 0; bin < PRPDConstants::AMPLITUDE_BINS; ++bin) {
@@ -432,16 +432,21 @@ void PRPDChart::updateAxisTicks(float min, float max) {
 }
 
 void PRPDChart::setPhaseRange(float min, float max) {
+    if (!CyclePhase::validRange(min, max)) {
+        qWarning() << "PRPD 相位范围必须为有限数值且下限小于上限";
+        return;
+    }
+    if (min == m_phaseMin && max == m_phaseMax) return;
     m_phaseMin = min;
     m_phaseMax = max;
     m_pointCoordinatesDirty = true;
     m_pointDataDirty = true;
-    setTicksRange('x', min, max, 85);
+    setTicksRange('x', min, max, CyclePhase::tickStep(min, max));
     update();
 }
 
-float PRPDChart::mapPhaseToGL(float phase) const {
-    return (phase - m_phaseMin) / (m_phaseMax - m_phaseMin) * PRPDConstants::GL_AXIS_LENGTH;
+float PRPDChart::mapPhaseToGL(double phase) const {
+    return CyclePhase::toPosition(phase, m_phaseMin, m_phaseMax, PRPDConstants::GL_AXIS_LENGTH);
 }
 
 void PRPDChart::queryDisplayedAmplitudeRange(float &displayMin, float &displayMax) const {
