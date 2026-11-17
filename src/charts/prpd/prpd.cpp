@@ -47,7 +47,7 @@ PRPDChart::~PRPDChart() {
     makeCurrent();
     m_amplitudeLineDrawers.clear();
     m_pointRenderer.reset();
-    m_staticPointRenderers.clear();
+    m_staticRenderers.clear();
     doneCurrent();
 }
 
@@ -65,7 +65,7 @@ void PRPDChart::initializeGLObjects() {
     m_pointRenderer->setStyle(pointStyle);
     m_pointRenderer->initialize();
     m_pointDataDirty = true;
-    m_staticPointRenderers.clear();
+    m_staticRenderers.clear();
     m_staticUploadDirty = true;
     m_staticUploadFailed = false;
 
@@ -82,7 +82,7 @@ void PRPDChart::paintGLObjects() {
         return;
     }
     if (m_staticUploadDirty) {
-        m_staticPointRenderers.clear();
+        m_staticRenderers.clear();
         m_staticUploadDirty = false;
     }
     if (m_frequencyTableDirty) {
@@ -664,7 +664,7 @@ void PRPDChart::mousePressEvent(QMouseEvent *event) {
 void PRPDChart::mouseMoveEvent(QMouseEvent *event) {
     if (m_dataMode == ChartDataMode::StaticSnapshot && m_staticTooltipEnabled &&
         !m_draggingAmplitudeRef && event->buttons() == Qt::NoButton) {
-        const auto hit = pickStaticHistogramPoint(event->pos());
+        const auto hit = pickStaticHistogram(event->pos());
         if (hit) QToolTip::showText(event->globalPos(), QStringLiteral("相位 [%1, %2)；幅值 [%3, %4%5；%6 %7")
             .arg(hit->phaseMinimum, 0, 'g', 10).arg(hit->phaseMaximum, 0, 'g', 10)
             .arg(hit->amplitudeMinimum, 0, 'g', 10).arg(hit->amplitudeMaximum, 0, 'g', 10)
@@ -812,6 +812,7 @@ bool PRPDChart::setStaticHistogram(PRPDHistogramSnapshot::Ptr snapshot) {
         qWarning() << "静态 PRPD 需在所属线程提交有效快照";
         return false;
     }
+    recordDiagnosticEvent(DiagnosticEvent::StaticSubmission);
     const auto previousRange = getCurrentRange();
     if (m_dataMode == ChartDataMode::Realtime) {
         m_realtimeCoordinateConfig = config();
@@ -871,9 +872,9 @@ void PRPDChart::useRealtimeData() {
     if (previousRange != getCurrentRange()) emit rangeChanged(m_displayMin, m_displayMax);
 }
 
-void PRPDChart::setStaticPointSize(float logicalPixels) {
-    if (QThread::currentThread() != thread() || !std::isfinite(logicalPixels) || logicalPixels <= 0.0f) return;
-    m_staticPointSize = logicalPixels;
+void PRPDChart::setStaticPointSize(float pixels) {
+    if (QThread::currentThread() != thread() || !std::isfinite(pixels) || pixels <= 0.0f) return;
+    m_staticPointSize = pixels;
     if (m_dataMode == ChartDataMode::StaticSnapshot) {
         QToolTip::hideText();
         update();
@@ -898,24 +899,25 @@ void PRPDChart::setStaticColorLegendEnabled(bool enabled) {
 }
 
 void PRPDChart::paintStaticHistogram() {
-    if (m_staticUploadDirty) m_staticPointRenderers.clear();
+    if (m_staticUploadDirty) m_staticRenderers.clear();
     if (!m_staticHistogram || m_staticHistogram->empty() || !renderOptions().data || m_staticUploadFailed) return;
     auto timing = measureRenderStage(RenderStage::Data);
     const auto& batches = m_staticHistogram->m_batches;
     if (m_staticUploadDirty) {
+        recordDiagnosticEvent(DiagnosticEvent::StaticUpload);
         for (std::size_t i = 0; i < batches.size(); ++i) {
             auto renderer = std::make_unique<Point2D>();
             renderer->initialize();
             if (!renderer->prepareInstances(batches[i])) {
                 m_staticUploadDirty = false;
                 m_staticUploadFailed = true;
-                m_staticPointRenderers.clear();
+                m_staticRenderers.clear();
                 m_staticEmptyLabel->setText(QStringLiteral("分布绘制失败，完整数据仍已保留"));
                 m_staticEmptyLabel->show();
                 layoutStaticOverlays();
                 return;
             }
-            m_staticPointRenderers.push_back(std::move(renderer));
+            m_staticRenderers.push_back(std::move(renderer));
         }
     }
     glDisable(GL_DEPTH_TEST);
@@ -924,8 +926,8 @@ void PRPDChart::paintStaticHistogram() {
     for (std::size_t i = 0; i < batches.size(); ++i) {
         Primitive2DStyle style;
         style.pointSize = staticPointSizeInDevicePixels();
-        m_staticPointRenderers[i]->setStyle(style);
-        m_staticPointRenderers[i]->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
+        m_staticRenderers[i]->setStyle(style);
+        m_staticRenderers[i]->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
             batches[i], -1.0f, false);
     }
     m_staticUploadDirty = false;
@@ -947,7 +949,9 @@ std::optional<HistogramCell> PRPDChart::histogramCellAt(const QPointF& pos) cons
     near /= near.w(); far /= far.w();
     const auto ray = far - near;
     if (std::abs(ray.z()) < 1e-8f) return {};
-    const auto hit = near + ray * (-near.z() / ray.z());
+    const float distance = -near.z() / ray.z();
+    if (!std::isfinite(distance) || distance < 0.0f || distance > 1.0f) return {};
+    const auto hit = near + ray * distance;
     const double phase = m_staticPhaseAxis.minimum + hit.x() / PRPDConstants::GL_AXIS_LENGTH *
         (m_staticPhaseAxis.maximum - m_staticPhaseAxis.minimum);
     const double amplitude = m_staticAmplitudeAxis.minimum + hit.y() / PRPDConstants::GL_AXIS_LENGTH *
@@ -956,11 +960,11 @@ std::optional<HistogramCell> PRPDChart::histogramCellAt(const QPointF& pos) cons
 }
 
 float PRPDChart::staticPointSizeInDevicePixels() const {
-    return std::clamp(m_staticPointSize * static_cast<float>(devicePixelRatioF()),
+    return std::clamp(m_staticPointSize,
         m_staticPointSizeRange.x(), m_staticPointSizeRange.y());
 }
 
-std::optional<HistogramCell> PRPDChart::pickStaticHistogramPoint(const QPointF& pos) const {
+std::optional<HistogramCell> PRPDChart::pickStaticHistogram(const QPointF& pos) const {
     if (m_dataMode != ChartDataMode::StaticSnapshot || !m_staticHistogram || m_staticHistogram->empty() ||
         m_staticUploadDirty || m_staticUploadFailed || !renderOptions().data || !rect().contains(pos.toPoint()) ||
         (m_staticLegend->isVisible() && m_staticLegend->geometry().contains(pos.toPoint()))) return {};
@@ -969,7 +973,7 @@ std::optional<HistogramCell> PRPDChart::pickStaticHistogramPoint(const QPointF& 
     bool invertible = false;
     const auto inverse = matrix.inverted(&invertible);
     if (!invertible) return {};
-    // OpenGL 点大小已乘设备像素比，鼠标及这里的命中范围统一使用逻辑像素。
+    // 绘制像素大小与实时图一致；鼠标命中范围换算为逻辑像素。
     const double radius = staticPointSizeInDevicePixels() / devicePixelRatioF() * 0.5;
     const double searchRadius = radius + 1.0 / devicePixelRatioF();
     auto unproject = [&](double screenX, double screenY) -> std::optional<QVector2D> {

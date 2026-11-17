@@ -412,6 +412,7 @@ void PRPSChart::processCycle(const std::vector<float>& cycleData) {
 }
 
 void PRPSChart::updatePRPSAnimation() {
+    recordDiagnosticEvent(DiagnosticEvent::AnimationUpdate);
     if (m_dataMode == ChartDataMode::StaticSnapshot) { updateAnimationState(); return; }
     if (m_paused || !m_animationVisible || !isVisible() || m_lineGroups.empty()) {
         updateAnimationState();
@@ -708,6 +709,7 @@ bool PRPSChart::setStaticEvents(PRPSEventSnapshot::Ptr snapshot) {
         qWarning() << "静态 PRPS 需在所属线程提交有效快照";
         return false;
     }
+    recordDiagnosticEvent(DiagnosticEvent::StaticSubmission);
     if (m_dataMode == ChartDataMode::Realtime) {
         if (m_animationTimer.isActive()) updatePRPSAnimation();
         m_realtimeCoordinateConfig = config();
@@ -775,6 +777,7 @@ void PRPSChart::paintStaticEvents() {
     if (!m_pulseRenderer) m_pulseRenderer = std::make_unique<PRPSRenderer>();
     if (m_staticEventsDirty) {
         m_staticEventsDirty = false;
+        recordDiagnosticEvent(DiagnosticEvent::StaticUpload);
         if (!m_pulseRenderer->uploadEvents(*m_staticEvents)) {
             m_staticEventsFailed = true;
             qWarning() << "静态 PRPS 缓冲上传失败，CPU 快照仍完整保留";

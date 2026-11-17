@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prographics/prographics_export.h"
+#include "prographics/charts/prpd/prpd_constants.h"
 #include "prographics/core/graphics/primitive2d.h"
 #include <QColor>
 #include <QString>
@@ -53,8 +54,8 @@ private:
 };
 
 struct PRPDHistogramData {
-    std::size_t phaseBins = 0;
-    std::size_t amplitudeBins = 0;
+    std::size_t phaseBins = PRPDConstants::PHASE_POINTS;
+    std::size_t amplitudeBins = PRPDConstants::AMPLITUDE_BINS;
     std::vector<double> phaseEdges; ///< phaseBins + 1 个严格递增的边界
     std::vector<double> amplitudeEdges; ///< amplitudeBins + 1 个严格递增的边界
     std::vector<std::uint64_t> counts; ///< phase-major：counts[p * amplitudeBins + a]
@@ -73,7 +74,7 @@ struct HistogramCell {
 };
 
 /** 可在工作线程准备，无 QWidget、OpenGL 或等待操作。失败返回空指针和中文原因。
- * 所有权转移到不可变快照；保留完整原始网格，零格不生成点，不插值、不重新分箱。
+ * 所有权转移到不可变快照；保留完整原始网格，零格不生成图元，不插值、不重新分箱。
  */
 class PROGRAPHICS_EXPORT PRPDHistogramSnapshot {
 public:

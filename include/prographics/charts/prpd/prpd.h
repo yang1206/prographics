@@ -32,19 +32,6 @@ namespace ProGraphics {
     };
 
     /**
-     * @brief PRPD 图表相关常量
-     */
-    struct PRPDConstants {
-        static constexpr float GL_AXIS_LENGTH = 5.0f; ///< OpenGL 坐标轴长度
-        static constexpr float POINT_SIZE = 8.0f; ///< 点渲染大小
-        static constexpr int PHASE_POINTS = 200; ///< 相位采样点数
-        static constexpr int MAX_CYCLES = 500; ///< 最大周期缓存数
-        static constexpr float PHASE_MAX = 360.0f; ///< 相位最大值
-        static constexpr float PHASE_MIN = 0.0f; ///< 相位最小值
-        static constexpr int AMPLITUDE_BINS = 100; ///< 幅值划分格子数
-    };
-
-    /**
      * @brief PRPD (Phase Resolved Partial Discharge) 局部放电相位分布图
      *
      * 用于显示局部放电信号的相位-幅值-频次三维分布关系。
@@ -74,7 +61,7 @@ namespace ProGraphics {
         ChartDataMode dataMode() const { return m_dataMode; }
         PRPDHistogramSnapshot::Ptr staticHistogram() const { return m_staticHistogram; }
         std::optional<HistogramCell> histogramCellAt(const QPointF& widgetPosition) const;
-        void setStaticPointSize(float logicalPixels); ///< 仅影响静态点大小，按设备像素比换算
+        void setStaticPointSize(float pixels); ///< 默认与实时 PRPD 相同，按 OpenGL 绘制像素设置
         float staticPointSize() const { return m_staticPointSize; }
         void setStaticTooltipEnabled(bool enabled); ///< 默认开启；关闭时立即收起悬浮提示
         bool isStaticTooltipEnabled() const { return m_staticTooltipEnabled; }
@@ -340,7 +327,7 @@ namespace ProGraphics {
         PRPDHistogramSnapshot::Ptr m_staticHistogram;
         std::optional<Coordinate2D::Config> m_realtimeCoordinateConfig;
         StaticAxis m_staticPhaseAxis, m_staticAmplitudeAxis;
-        std::vector<std::unique_ptr<Point2D>> m_staticPointRenderers;
+        std::vector<std::unique_ptr<Primitive2D>> m_staticRenderers;
         bool m_staticUploadDirty = true;
         bool m_staticUploadFailed = false;
         bool m_realtimeMouseTracking = false;
@@ -404,7 +391,7 @@ namespace ProGraphics {
 
         void paintStaticHistogram();
         float staticPointSizeInDevicePixels() const;
-        std::optional<HistogramCell> pickStaticHistogramPoint(const QPointF& widgetPosition) const;
+        std::optional<HistogramCell> pickStaticHistogram(const QPointF& widgetPosition) const;
         void layoutStaticOverlays();
         bool rejectStaticConfiguration(const char* method) const;
 

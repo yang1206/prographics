@@ -45,6 +45,15 @@ namespace ProGraphics {
       bool textCacheUsed = false;
       bool textCacheRebuilt = false;
     };
+    // 仅启用 render profiling 后累计；读取和重置均在控件所属线程调用，不触发重绘。
+    struct RenderDiagnostics {
+      quint64 glInitializations = 0, frames = 0;
+      quint64 coordinateConfigs = 0, cameraUpdates = 0, animationUpdates = 0;
+      quint64 staticSubmissions = 0, staticUploads = 0;
+      quint64 textCacheRebuilds = 0, textFallbackFrames = 0;
+      qint64 initializeCpuNs = 0, frameCpuNs = 0;
+      std::array<qint64, 4> stageCpuNs{};
+    };
     void setRenderOptions(const RenderOptions& options) {
       if (m_renderOptions == options) return;
       m_renderOptions = options;
@@ -53,11 +62,27 @@ namespace ProGraphics {
     const RenderOptions& renderOptions() const { return m_renderOptions; }
     void setRenderProfilingEnabled(bool enabled) {
       m_renderProfiling = enabled;
-      m_frameRenderMetrics = {};
+      resetRenderDiagnostics();
     }
     const FrameRenderMetrics& lastFrameRenderMetrics() const { return m_frameRenderMetrics; }
+    const RenderDiagnostics& renderDiagnostics() const { return m_renderDiagnostics; }
+    void resetRenderDiagnostics() {
+      m_frameRenderMetrics = {};
+      m_renderDiagnostics = {};
+    }
 
   protected:
+    enum class DiagnosticEvent { CoordinateConfig, CameraUpdate, AnimationUpdate, StaticSubmission, StaticUpload };
+    void recordDiagnosticEvent(DiagnosticEvent event) {
+      if (!m_renderProfiling) return;
+      switch (event) {
+      case DiagnosticEvent::CoordinateConfig: ++m_renderDiagnostics.coordinateConfigs; break;
+      case DiagnosticEvent::CameraUpdate: ++m_renderDiagnostics.cameraUpdates; break;
+      case DiagnosticEvent::AnimationUpdate: ++m_renderDiagnostics.animationUpdates; break;
+      case DiagnosticEvent::StaticSubmission: ++m_renderDiagnostics.staticSubmissions; break;
+      case DiagnosticEvent::StaticUpload: ++m_renderDiagnostics.staticUploads; break;
+      }
+    }
     class RenderStageScope {
     public:
       RenderStageScope(BaseGLWidget& owner, RenderStage stage)
@@ -82,6 +107,8 @@ namespace ProGraphics {
       if (!m_renderProfiling) return;
       m_frameRenderMetrics.textCacheUsed = used;
       m_frameRenderMetrics.textCacheRebuilt = rebuilt;
+      if (rebuilt) ++m_renderDiagnostics.textCacheRebuilds;
+      if (!used) ++m_renderDiagnostics.textFallbackFrames;
     }
 
     // OpenGL 基础函数
@@ -105,5 +132,6 @@ namespace ProGraphics {
     RenderOptions m_renderOptions;
     bool m_renderProfiling = false;
     FrameRenderMetrics m_frameRenderMetrics;
+    RenderDiagnostics m_renderDiagnostics;
   };
 } // namespace ProGraphics

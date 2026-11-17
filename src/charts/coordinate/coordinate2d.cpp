@@ -241,6 +241,7 @@ namespace ProGraphics {
   }
 
   void Coordinate2D::setConfig(const Config &config) {
+    recordDiagnosticEvent(DiagnosticEvent::CoordinateConfig);
     m_config = config;
     updateAxisSystem();
     updateGridSystem();

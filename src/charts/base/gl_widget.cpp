@@ -27,6 +27,11 @@ namespace ProGraphics {
     }
 
     void BaseGLWidget::initializeGL() {
+        QElapsedTimer initializeClock;
+        if (m_renderProfiling) {
+            ++m_renderDiagnostics.glInitializations;
+            initializeClock.start();
+        }
         initializeOpenGLFunctions();
 
         if (!QOpenGLContext::currentContext()->isValid()) {
@@ -55,12 +60,23 @@ namespace ProGraphics {
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
 
         initializeGLObjects();
+        if (m_renderProfiling) m_renderDiagnostics.initializeCpuNs += initializeClock.nsecsElapsed();
     }
 
     void BaseGLWidget::paintGL() {
-        if (m_renderProfiling) m_frameRenderMetrics = {};
+        QElapsedTimer frameClock;
+        if (m_renderProfiling) {
+            m_frameRenderMetrics = {};
+            ++m_renderDiagnostics.frames;
+            frameClock.start();
+        }
         glClear(GL_COLOR_BUFFER_BIT);
         paintGLObjects();
+        if (m_renderProfiling) {
+            m_renderDiagnostics.frameCpuNs += frameClock.nsecsElapsed();
+            for (size_t i = 0; i < m_frameRenderMetrics.cpuNs.size(); ++i)
+                m_renderDiagnostics.stageCpuNs[i] += m_frameRenderMetrics.cpuNs[i];
+        }
     }
 
     void BaseGLWidget::resizeGL(int w, int h) { glViewport(0, 0, w, h); }

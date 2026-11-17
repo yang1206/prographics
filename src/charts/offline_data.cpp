@@ -1,5 +1,4 @@
 #include "prographics/charts/offline_data.h"
-#include "prographics/charts/prpd/prpd.h"
 #include "prographics/utils/utils.h"
 #include <algorithm>
 #include <cmath>
@@ -111,7 +110,6 @@ PRPDHistogramSnapshot::Ptr PRPDHistogramSnapshot::prepare(PRPDHistogramData data
             if (snapshot->m_batches.empty() || snapshot->m_batches.back().size() == batchSize) snapshot->m_batches.emplace_back();
             const double amplitude = d.amplitudeEdges[a] + (d.amplitudeEdges[a + 1] - d.amplitudeEdges[a]) * 0.5;
             Transform2D transform;
-            // 与 PRPD 原有几何长度一致，CPU 只在准备快照时生成。
             transform.position = QVector2D(PRPDConstants::GL_AXIS_LENGTH * position(phase, d.phaseEdges.front(), d.phaseEdges.back()),
                 PRPDConstants::GL_AXIS_LENGTH * position(amplitude, d.amplitudeEdges.front(), d.amplitudeEdges.back()));
             transform.color = rgba(snapshot->m_colors.color(count));

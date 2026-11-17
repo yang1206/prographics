@@ -57,7 +57,10 @@ void main() {
 
 
     connect(m_controls.get(), &OrbitControls::updated, this,
-            [this]() { update(); });
+            [this]() {
+                recordDiagnosticEvent(DiagnosticEvent::CameraUpdate);
+                update();
+            });
   }
 
   Coordinate3D::~Coordinate3D() {
@@ -176,6 +179,7 @@ void main() {
   }
 
   void Coordinate3D::setConfig(const Config &config) {
+    recordDiagnosticEvent(DiagnosticEvent::CoordinateConfig);
     m_config = config;
     updateAxisSystem();
     updateGridSystem();
