@@ -5,12 +5,17 @@
 #include <QThread>
 #include <QTimer>
 #include <QWaitCondition>
+#include "prographics/prographics_export.h"
 #include "prographics/charts/coordinate/coordinate3d.h"
+#include "prographics/charts/offline_data.h"
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
 #include <memory>
 #include <deque>
 #include <vector>
+
+class QLabel;
+class QResizeEvent;
 
 namespace ProGraphics {
   class PRPSRenderer;
@@ -80,7 +85,7 @@ namespace ProGraphics {
    * 用于显示局部放电信号的三维时序演变。
    * 支持三种量程模式：固定、自动、自适应。
    */
-  class PRPSChart : public Coordinate3D {
+  class PROGRAPHICS_EXPORT PRPSChart : public Coordinate3D {
     Q_OBJECT
 
   public:
@@ -96,6 +101,14 @@ namespace ProGraphics {
     explicit PRPSChart(QWidget *parent = nullptr);
 
     ~PRPSChart() override;
+
+    // 快照可在工作线程 prepare；提交及图表查询在所属 GUI 线程调用。
+    bool setStaticEvents(PRPSEventSnapshot::Ptr snapshot);
+    void clearStaticEvents(); ///< 留在静态模式，保留坐标、暂停配置及倍率
+    void useRealtimeData(); ///< 恢复进入静态模式前的实时周期及坐标，从当前位置重新计时
+    ChartDataMode dataMode() const { return m_dataMode; }
+    PRPSEventSnapshot::Ptr staticEvents() const { return m_staticEvents; }
+    std::optional<StaticEventHit> pickStaticEvent(const QPointF& widgetPosition, double tolerancePixels = 6.0) const;
 
     // ==================== 量程设置 API ====================
 
@@ -127,7 +140,7 @@ namespace ProGraphics {
     /**
      * @brief 获取当前量程模式
      */
-    RangeMode getRangeMode() const { return m_rangeMode; }
+    RangeMode getRangeMode() const { return m_dataMode == ChartDataMode::StaticSnapshot ? RangeMode::Fixed : m_rangeMode; }
 
     /**
      * @brief 获取当前显示范围
@@ -310,9 +323,11 @@ namespace ProGraphics {
      * @brief 检查是否正在接受新数据
      * @return true 如果接受新数据
      */
-    bool isAcceptingData() const { return m_acceptData; }
+    bool isAcceptingData() const { return m_dataMode == ChartDataMode::Realtime && m_acceptData; }
 
   signals:
+    // 左键单击竖线，返回原始源 ID 和快照中的稳定索引；拖动旋转不触发。
+    void staticEventSelected(quint64 sourceEventId, quint64 eventIndex);
     // 仅在实际显示端点改变后发出，单位与幅值数据一致。
     void rangeChanged(float min, float max);
 
@@ -324,6 +339,11 @@ namespace ProGraphics {
     void showEvent(QShowEvent *event) override;
 
     void hideEvent(QHideEvent *event) override;
+
+    void resizeEvent(QResizeEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
   private slots:
     void updatePRPSAnimation();
@@ -343,6 +363,15 @@ namespace ProGraphics {
     // ==================== 成员变量 ====================
 
     float m_threshold = 0.1f;
+    ChartDataMode m_dataMode = ChartDataMode::Realtime;
+    PRPSEventSnapshot::Ptr m_staticEvents;
+    std::optional<Coordinate3D::Config> m_realtimeCoordinateConfig;
+    StaticAxis m_staticPhaseAxis, m_staticAmplitudeAxis;
+    bool m_staticEventsDirty = true;
+    bool m_staticEventsFailed = false;
+    QLabel* m_staticEmptyLabel = nullptr;
+    QPointF m_staticPressPosition;
+    bool m_staticPickCandidate = false;
     std::deque<std::unique_ptr<LineGroup>> m_lineGroups;
     RangeWindow m_rangeWindow{PRPSConstants::MAX_LINE_GROUPS};
     bool m_lineTransformsDirty = false;
@@ -379,6 +408,10 @@ namespace ProGraphics {
     // ==================== 私有方法 ====================
 
     void processCycle(const std::vector<float> &cycleData);
+
+    void paintStaticEvents();
+    void layoutStaticOverlay();
+    bool rejectStaticConfiguration(const char* method) const;
 
     void cleanupInactiveGroups();
 

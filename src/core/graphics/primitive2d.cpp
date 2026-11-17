@@ -213,6 +213,17 @@ namespace ProGraphics {
     return true;
   }
 
+  bool Primitive2D::prepareInstances(const std::vector<Transform2D>& transforms) {
+    if (transforms.size() > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(InstanceData)) return false;
+    if (m_isDirty) updateVertexData();
+    if (!m_instancedMode) initializeInstanceBuffer();
+    if (!updateInstanceData(transforms) || !m_instanceVBO.bind()) return false;
+    const bool allocated = m_instanceVBO.size() == static_cast<int>(m_instanceData.size() * sizeof(InstanceData));
+    m_instanceVBO.release();
+    if (!allocated) qWarning() << "2D 实例缓冲上传失败";
+    return allocated;
+  }
+
   void Primitive2D::drawInstanced(const QMatrix4x4 &projection, const QMatrix4x4 &view,
                                   const std::vector<Transform2D> &transforms,
                                   float alphaReplace,

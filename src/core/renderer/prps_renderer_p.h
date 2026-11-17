@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prographics/core/graphics/primitive2d.h"
+#include "prographics/charts/offline_data.h"
 #include <QDebug>
 #include <array>
 #include <cstddef>
@@ -14,6 +15,55 @@ public:
     static constexpr int SlotCount = 80;
 
     int rowCapacity() const { return m_rowCapacity; }
+
+    void clearEvents() { m_eventBatches.clear(); }
+
+    bool uploadEvents(const PRPSEventSnapshot& snapshot) {
+        if (!initialize()) return false;
+        m_eventBatches.clear();
+        constexpr size_t batchSize = 65536;
+        const auto& instances = snapshot.m_instances;
+        for (size_t first = 0; first < instances.size(); first += batchSize) {
+            EventBatch batch;
+            batch.count = static_cast<GLsizei>(std::min(batchSize, instances.size() - first));
+            batch.buffer = std::make_unique<QOpenGLBuffer>();
+            if (!batch.buffer->create() || !batch.buffer->bind()) { clearEvents(); return false; }
+            const int bytes = static_cast<int>(batch.count * sizeof(PRPSEventSnapshot::Instance));
+            batch.buffer->setUsagePattern(QOpenGLBuffer::StaticDraw);
+            batch.buffer->allocate(instances.data() + first, bytes);
+            const bool allocated = batch.buffer->size() == bytes;
+            batch.buffer->release();
+            if (!allocated) { clearEvents(); return false; }
+            m_eventBatches.push_back(std::move(batch));
+        }
+        return true;
+    }
+
+    bool drawEvents(const QMatrix4x4& projection, const QMatrix4x4& view, float axisLength) {
+        if (m_eventBatches.empty()) return true;
+        if (!m_program.bind()) return false;
+        m_program.setUniformValue(m_projectionLocation, projection);
+        m_program.setUniformValue(m_viewLocation, view);
+        m_program.setUniformValue(m_staticEventsLocation, true);
+        m_program.setUniformValue(m_axisLengthLocation, axisLength);
+        m_eventVao.bind();
+        for (const auto& batch : m_eventBatches) {
+            if (!batch.buffer->bind()) {
+                m_eventVao.release();
+                m_program.release();
+                return false;
+            }
+            using Event = PRPSEventSnapshot::Instance;
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Event), reinterpret_cast<void*>(offsetof(Event, phaseHeight)));
+            glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Event), reinterpret_cast<void*>(offsetof(Event, color)));
+            glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Event), reinterpret_cast<void*>(offsetof(Event, sequence)));
+            glDrawArraysInstanced(GL_LINES, 0, 2, batch.count);
+            batch.buffer->release();
+        }
+        m_eventVao.release();
+        m_program.release();
+        return true;
+    }
 
     bool setRowCapacity(int capacity) {
         const size_t maximumCapacity = static_cast<size_t>(std::numeric_limits<int>::max()) /
@@ -69,6 +119,7 @@ public:
         }
         m_program.setUniformValue(m_projectionLocation, projection);
         m_program.setUniformValue(m_viewLocation, view);
+        m_program.setUniformValue(m_staticEventsLocation, false);
         m_program.setUniformValue(m_capacityLocation, m_rowCapacity);
         m_program.setUniformValueArray(m_zLocation, zPositions.data(), SlotCount, 1);
         m_program.setUniformValueArray(m_countLocation, m_rowCounts.data(), SlotCount);
@@ -89,6 +140,10 @@ public:
     }
 
 private:
+    struct EventBatch {
+        std::unique_ptr<QOpenGLBuffer> buffer;
+        GLsizei count = 0;
+    };
     struct Instance {
         float phaseHeight[2];
         float color[4];
@@ -103,6 +158,9 @@ private:
             #version 410 core
             layout (location = 0) in vec2 phaseHeight;
             layout (location = 1) in vec4 instanceColor;
+            layout (location = 2) in float eventSequence;
+            uniform bool staticEvents;
+            uniform float axisLength;
             uniform mat4 projection;
             uniform mat4 view;
             uniform int rowCapacity;
@@ -111,6 +169,12 @@ private:
             uniform float zPositions[80];
             out vec4 vertexColor;
             void main() {
+                if (staticEvents) {
+                    vertexColor = instanceColor;
+                    gl_Position = projection * view * vec4(phaseHeight.x * axisLength,
+                        float(gl_VertexID) * phaseHeight.y * axisLength, eventSequence * axisLength, 1.0);
+                    return;
+                }
                 int slot = firstSlot + gl_InstanceID / rowCapacity;
                 int index = gl_InstanceID % rowCapacity;
                 vertexColor = vec4(0.0);
@@ -134,7 +198,7 @@ private:
         )";
         if (!m_program.addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShader) ||
             !m_program.addShaderFromSourceCode(QOpenGLShader::Fragment, fragmentShader) ||
-            !m_program.link() || !m_vao.create() || !m_vbo.create()) {
+            !m_program.link() || !m_vao.create() || !m_vbo.create() || !m_eventVao.create()) {
             qWarning() << "PRPS 批量渲染器初始化失败:" << m_program.log();
             m_failed = true;
             return false;
@@ -146,6 +210,8 @@ private:
         m_firstSlotLocation = m_program.uniformLocation("firstSlot");
         m_zLocation = m_program.uniformLocation("zPositions[0]");
         m_countLocation = m_program.uniformLocation("rowCounts[0]");
+        m_staticEventsLocation = m_program.uniformLocation("staticEvents");
+        m_axisLengthLocation = m_program.uniformLocation("axisLength");
         m_vbo.setUsagePattern(QOpenGLBuffer::DynamicDraw);
         m_vao.bind();
         m_vbo.bind();
@@ -155,6 +221,12 @@ private:
         glVertexAttribDivisor(1, 1);
         m_vao.release();
         m_vbo.release();
+        m_eventVao.bind();
+        for (GLuint attribute = 0; attribute < 3; ++attribute) {
+            glEnableVertexAttribArray(attribute);
+            glVertexAttribDivisor(attribute, 1);
+        }
+        m_eventVao.release();
         m_initialized = true;
         return true;
     }
@@ -172,6 +244,8 @@ private:
     QOpenGLShaderProgram m_program;
     QOpenGLVertexArrayObject m_vao;
     QOpenGLBuffer m_vbo;
+    QOpenGLVertexArrayObject m_eventVao;
+    std::vector<EventBatch> m_eventBatches;
     std::vector<Instance> m_staging;
     std::array<GLint, SlotCount> m_rowCounts{};
     int m_rowCapacity = 0;
@@ -181,6 +255,8 @@ private:
     int m_firstSlotLocation = -1;
     int m_zLocation = -1;
     int m_countLocation = -1;
+    int m_staticEventsLocation = -1;
+    int m_axisLengthLocation = -1;
     bool m_initialized = false;
     bool m_failed = false;
 };

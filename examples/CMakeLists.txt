@@ -19,6 +19,8 @@ list(APPEND EXAMPLE_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/offline_demo.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/offline_demo.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/stress_test_dialog.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/stress_test_dialog.cpp"
 )

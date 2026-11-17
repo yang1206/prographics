@@ -208,6 +208,9 @@ namespace ProGraphics {
                        float alphaReplace = -1.0f,
                        bool uploadInstanceData = true);
 
+    /** 在当前 OpenGL 上下文中预上传实例，失败返回 false；之后可用 uploadInstanceData=false 绘制。 */
+    bool prepareInstances(const std::vector<Transform2D>& transforms);
+
     /**
      * @brief 销毁图元
      */

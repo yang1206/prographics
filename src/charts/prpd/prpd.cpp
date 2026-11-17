@@ -2,6 +2,11 @@
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
 #include "charts/cycle_phase_p.h"
+#include "charts/offline_view_p.h"
+#include <QLabel>
+#include <QResizeEvent>
+#include <QThread>
+#include <QToolTip>
 #include <QMouseEvent>
 #include <QOpenGLWidget>
 #include <cmath>
@@ -25,6 +30,12 @@ PRPDChart::PRPDChart(QWidget* parent) : Coordinate2D(parent) {
     setAxisVisible('y', false);
 
     clearFrequencyTable();
+    m_staticLegend = new CountColorLegend(this);
+    m_staticLegend->hide();
+    m_staticEmptyLabel = new QLabel(QStringLiteral("暂无分布数据"), this);
+    m_staticEmptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_staticEmptyLabel->setStyleSheet(QStringLiteral("QLabel { color: white; background: #263448; padding: 8px; }"));
+    m_staticEmptyLabel->hide();
 }
 
 PRPDChart::~PRPDChart() {
@@ -36,6 +47,7 @@ PRPDChart::~PRPDChart() {
     makeCurrent();
     m_amplitudeLineDrawers.clear();
     m_pointRenderer.reset();
+    m_staticPointRenderers.clear();
     doneCurrent();
 }
 
@@ -49,6 +61,9 @@ void PRPDChart::initializeGLObjects() {
     m_pointRenderer->setStyle(pointStyle);
     m_pointRenderer->initialize();
     m_pointDataDirty = true;
+    m_staticPointRenderers.clear();
+    m_staticUploadDirty = true;
+    m_staticUploadFailed = false;
 
     m_cycleBuffer.data.reserve(PRPDConstants::MAX_CYCLES);
     m_cycleBuffer.binIndices.reserve(PRPDConstants::MAX_CYCLES);
@@ -56,6 +71,16 @@ void PRPDChart::initializeGLObjects() {
 }
 
 void PRPDChart::paintGLObjects() {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) {
+        Coordinate2D::paintGLObjects();
+        paintStaticHistogram();
+        if (renderOptions().referenceLines && hasVisibleAmplitudeLines()) paintAmplitudeLines();
+        return;
+    }
+    if (m_staticUploadDirty) {
+        m_staticPointRenderers.clear();
+        m_staticUploadDirty = false;
+    }
     if (m_frequencyTableDirty) {
         auto timing = measureRenderStage(RenderStage::Data);
         rebuildFrequencyTable();
@@ -175,13 +200,14 @@ void PRPDChart::paintAmplitudeLines() {
     const QMatrix4x4 projection = camera().getProjectionMatrix();
     const QMatrix4x4 view       = camera().getViewMatrix();
 
-    const float x0 = mapPhaseToGL(m_phaseMin);
-    const float x1 = mapPhaseToGL(m_phaseMax);
+    const float x0 = m_dataMode == ChartDataMode::StaticSnapshot ? 0.0f : mapPhaseToGL(m_phaseMin);
+    const float x1 = m_dataMode == ChartDataMode::StaticSnapshot ? PRPDConstants::GL_AXIS_LENGTH : mapPhaseToGL(m_phaseMax);
+    const auto [displayMin, displayMax] = getCurrentRange();
 
     for (size_t i = 0; i < m_amplitudeLineSpecs.size(); ++i) {
         const AmplitudeLine& spec = m_amplitudeLineSpecs[i];
         if (!spec.visible || !std::isfinite(spec.amplitudeDbm) ||
-            spec.amplitudeDbm < m_displayMin || spec.amplitudeDbm > m_displayMax) {
+            spec.amplitudeDbm < displayMin || spec.amplitudeDbm > displayMax) {
             continue;
         }
 
@@ -198,6 +224,7 @@ void PRPDChart::paintAmplitudeLines() {
 }
 
 void PRPDChart::addCycleData(const std::vector<float>& cycleData) {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return;
     if (!m_acceptData) {
         return;
     }
@@ -294,6 +321,7 @@ QVector4D PRPDChart::calculateColor(int frequency) const {
 // ==================== 量程设置 API 实现 ====================
 
 void PRPDChart::setFixedRange(float min, float max) {
+    if (rejectStaticConfiguration("setFixedRange")) return;
     LinearScale::Range range;
     if (!LinearScale::normalize(min, max, range, 0.0)) {
         qWarning() << "PRPD 量程端点必须为有限数值";
@@ -306,6 +334,7 @@ void PRPDChart::setFixedRange(float min, float max) {
 }
 
 void PRPDChart::setAutoRange(const DynamicRange::DynamicRangeConfig& config) {
+    if (rejectStaticConfiguration("setAutoRange")) return;
     const auto seed = getCurrentRange();
     m_rangeMode = RangeMode::Auto;
     m_dynamicRange.setConfig(config);
@@ -318,6 +347,7 @@ void PRPDChart::setAutoRange(const DynamicRange::DynamicRangeConfig& config) {
 }
 
 void PRPDChart::setAdaptiveRange(float initialMin, float initialMax, const DynamicRange::DynamicRangeConfig& config) {
+    if (rejectStaticConfiguration("setAdaptiveRange")) return;
     LinearScale::Range range;
     if (!LinearScale::normalize(initialMin, initialMax, range, 0.0)) {
         qWarning() << "PRPD 初始量程端点必须为有限数值";
@@ -336,16 +366,19 @@ void PRPDChart::setAdaptiveRange(float initialMin, float initialMax, const Dynam
 // ==================== 量程查询 API 实现 ====================
 
 std::pair<float, float> PRPDChart::getCurrentRange() const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return {static_cast<float>(m_staticAmplitudeAxis.minimum), static_cast<float>(m_staticAmplitudeAxis.maximum)};
     return {m_displayMin, m_displayMax};
 }
 
 std::pair<float, float> PRPDChart::getConfiguredRange() const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return getCurrentRange();
     return {m_configuredMin, m_configuredMax};
 }
 
 // ==================== 运行时调整 API 实现 ====================
 
 void PRPDChart::updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig& config) {
+    if (rejectStaticConfiguration("updateAutoRangeConfig")) return;
     if (m_rangeMode == RangeMode::Auto || m_rangeMode == RangeMode::Adaptive) {
         m_dynamicRange.setConfig(config);
         forceUpdateRange();
@@ -363,6 +396,7 @@ void PRPDChart::switchToAutoRange() {
 // ==================== 硬限制 API 实现 ====================
 
 void PRPDChart::setHardLimits(float min, float max, bool enabled) {
+    if (rejectStaticConfiguration("setHardLimits")) return;
     m_dynamicRange.setHardLimits(min, max, enabled);
     if (m_rangeMode != RangeMode::Fixed) {
         forceUpdateRange();
@@ -374,6 +408,7 @@ std::pair<float, float> PRPDChart::getHardLimits() const {
 }
 
 void PRPDChart::enableHardLimits(bool enabled) {
+    if (rejectStaticConfiguration("enableHardLimits")) return;
     m_dynamicRange.enableHardLimits(enabled);
     if (m_rangeMode != RangeMode::Fixed) {
         forceUpdateRange();
@@ -432,6 +467,7 @@ void PRPDChart::updateAxisTicks(float min, float max) {
 }
 
 void PRPDChart::setPhaseRange(float min, float max) {
+    if (rejectStaticConfiguration("setPhaseRange")) return;
     if (!CyclePhase::validRange(min, max)) {
         qWarning() << "PRPD 相位范围必须为有限数值且下限小于上限";
         return;
@@ -446,6 +482,8 @@ void PRPDChart::setPhaseRange(float min, float max) {
 }
 
 float PRPDChart::mapPhaseToGL(double phase) const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return static_cast<float>((phase - m_staticPhaseAxis.minimum) /
+        (m_staticPhaseAxis.maximum - m_staticPhaseAxis.minimum) * PRPDConstants::GL_AXIS_LENGTH);
     return CyclePhase::toPosition(phase, m_phaseMin, m_phaseMax, PRPDConstants::GL_AXIS_LENGTH);
 }
 
@@ -454,6 +492,8 @@ void PRPDChart::queryDisplayedAmplitudeRange(float &displayMin, float &displayMa
 }
 
 float PRPDChart::mapAmplitudeToGL(float amplitude) const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return static_cast<float>(std::clamp(
+        (amplitude - m_staticAmplitudeAxis.minimum) / (m_staticAmplitudeAxis.maximum - m_staticAmplitudeAxis.minimum), 0.0, 1.0) * PRPDConstants::GL_AXIS_LENGTH);
     float displayMin = 0.f;
     float displayMax = 0.f;
     queryDisplayedAmplitudeRange(displayMin, displayMax);
@@ -539,8 +579,8 @@ int PRPDChart::pickAmplitudeLineAt(const QPoint &widgetPos) const {
     }
 
     const QVector3D chartHit = unprojectWidgetToChartPlane(widgetPos);
-    const float       x0     = mapPhaseToGL(m_phaseMin);
-    const float       x1     = mapPhaseToGL(m_phaseMax);
+    const float       x0     = m_dataMode == ChartDataMode::StaticSnapshot ? 0.0f : mapPhaseToGL(m_phaseMin);
+    const float       x1     = m_dataMode == ChartDataMode::StaticSnapshot ? PRPDConstants::GL_AXIS_LENGTH : mapPhaseToGL(m_phaseMax);
     const float       xmin   = std::min(x0, x1);
     const float       xmax   = std::max(x0, x1);
     if (chartHit.x() < xmin || chartHit.x() > xmax) {
@@ -551,10 +591,11 @@ int PRPDChart::pickAmplitudeLineAt(const QPoint &widgetPos) const {
     float       bestPixelDy = m_dragPickTolerancePx + 1.f;
     const float midX       = 0.5f * (x0 + x1);
 
+    const auto [displayMin, displayMax] = getCurrentRange();
     for (size_t i = 0; i < m_amplitudeLineSpecs.size(); ++i) {
         const auto& spec = m_amplitudeLineSpecs[i];
         if (!spec.visible || !std::isfinite(spec.amplitudeDbm) ||
-            spec.amplitudeDbm < m_displayMin || spec.amplitudeDbm > m_displayMax) {
+            spec.amplitudeDbm < displayMin || spec.amplitudeDbm > displayMax) {
             continue;
         }
         const float yGl      = mapAmplitudeToGL(m_amplitudeLineSpecs[i].amplitudeDbm);
@@ -581,7 +622,7 @@ void PRPDChart::setAmplitudeReferenceLinesDraggable(bool enabled) {
         }
         m_draggingAmplitudeRef      = false;
         m_draggingAmplitudeRefIndex = -1;
-        setMouseTracking(false);
+        setMouseTracking(m_dataMode == ChartDataMode::StaticSnapshot && (m_staticTooltipEnabled || m_realtimeMouseTracking));
         releaseMouse();
         emit amplitudeReferenceLineDragEnded(idx, amp);
     }
@@ -616,12 +657,22 @@ void PRPDChart::mousePressEvent(QMouseEvent *event) {
 }
 
 void PRPDChart::mouseMoveEvent(QMouseEvent *event) {
+    if (m_dataMode == ChartDataMode::StaticSnapshot && m_staticTooltipEnabled && !m_draggingAmplitudeRef) {
+        const auto hit = histogramCellAt(event->pos());
+        if (hit) QToolTip::showText(event->globalPos(), QStringLiteral("相位 [%1, %2)；幅值 [%3, %4%5；%6 %7")
+            .arg(hit->phaseMinimum, 0, 'g', 10).arg(hit->phaseMaximum, 0, 'g', 10)
+            .arg(hit->amplitudeMinimum, 0, 'g', 10).arg(hit->amplitudeMaximum, 0, 'g', 10)
+            .arg(hit->amplitudeBin + 1 == m_staticHistogram->data().amplitudeBins ? "]" : ")")
+            .arg(m_staticHistogram->colorScale().label())
+            .arg(static_cast<qulonglong>(hit->count)), this);
+        else QToolTip::hideText();
+    }
     if (m_draggingAmplitudeRef && m_draggingAmplitudeRefIndex >= 0) {
         const int idx = m_draggingAmplitudeRefIndex;
         if (idx >= static_cast<int>(m_amplitudeLineSpecs.size())) {
             m_draggingAmplitudeRef      = false;
             m_draggingAmplitudeRefIndex = -1;
-            setMouseTracking(false);
+            setMouseTracking(m_dataMode == ChartDataMode::StaticSnapshot && (m_staticTooltipEnabled || m_realtimeMouseTracking));
             releaseMouse();
             QOpenGLWidget::mouseMoveEvent(event);
             return;
@@ -648,7 +699,7 @@ void PRPDChart::mouseReleaseEvent(QMouseEvent *event) {
         }
         m_draggingAmplitudeRef      = false;
         m_draggingAmplitudeRefIndex = -1;
-        setMouseTracking(false);
+        setMouseTracking(m_dataMode == ChartDataMode::StaticSnapshot && (m_staticTooltipEnabled || m_realtimeMouseTracking));
         releaseMouse();
         emit amplitudeReferenceLineDragEnded(idx, amp);
         event->accept();
@@ -701,6 +752,7 @@ float PRPDChart::getBinCenterAmplitude(BinIndex binIndex) const {
 }
 
 void PRPDChart::setPhasePoint(int phasePoint) {
+    if (rejectStaticConfiguration("setPhasePoint")) return;
     if (phasePoint <= 0) {
         qWarning() << "PRPD 相位采样点数必须大于 0:" << phasePoint;
         return;
@@ -736,4 +788,165 @@ void PRPDChart::togglePause() {
     }
 }
 
+bool PRPDChart::rejectStaticConfiguration(const char* method) const {
+    if (m_dataMode != ChartDataMode::StaticSnapshot) return false;
+    qWarning() << method << "静态坐标由快照定义，请准备并提交新快照或先切回实时模式";
+    return true;
+}
+
+bool PRPDChart::setStaticHistogram(PRPDHistogramSnapshot::Ptr snapshot) {
+    if (QThread::currentThread() != thread() || !snapshot) {
+        qWarning() << "静态 PRPD 需在所属线程提交有效快照";
+        return false;
+    }
+    const auto previousRange = getCurrentRange();
+    if (m_dataMode == ChartDataMode::Realtime) {
+        m_realtimeCoordinateConfig = config();
+        m_realtimeMouseTracking = hasMouseTracking();
+    }
+    m_dataMode = ChartDataMode::StaticSnapshot;
+    m_staticHistogram = std::move(snapshot);
+    const auto& d = m_staticHistogram->data();
+    m_staticPhaseAxis = {d.phaseEdges.front(), d.phaseEdges.back(), d.phaseName, d.phaseUnit};
+    m_staticAmplitudeAxis = {d.amplitudeEdges.front(), d.amplitudeEdges.back(), d.amplitudeName, d.amplitudeUnit};
+    auto axes = config();
+    axes.size = PRPDConstants::GL_AXIS_LENGTH;
+    axes.names.enabled = axes.ticks.enabled = true;
+    OfflineView::configureAxis(axes.ticks.x, axes.names.x, m_staticPhaseAxis);
+    OfflineView::configureAxis(axes.ticks.y, axes.names.y, m_staticAmplitudeAxis);
+    setConfig(axes);
+    m_staticUploadDirty = true;
+    m_staticUploadFailed = false;
+    m_staticEmptyLabel->setText(QStringLiteral("暂无分布数据"));
+    m_staticLegend->setColorScale(m_staticHistogram->colorScale());
+    m_staticLegend->setVisible(m_staticColorLegendEnabled && !m_staticHistogram->empty());
+    m_staticEmptyLabel->setVisible(m_staticHistogram->empty());
+    setMouseTracking(m_staticTooltipEnabled || m_realtimeMouseTracking || m_draggingAmplitudeRef);
+    layoutStaticOverlays();
+    update();
+    if (previousRange != getCurrentRange()) emit rangeChanged(getCurrentRange().first, getCurrentRange().second);
+    return true;
+}
+
+void PRPDChart::clearStaticHistogram() {
+    if (QThread::currentThread() != thread() || m_dataMode != ChartDataMode::StaticSnapshot) return;
+    m_staticHistogram.reset();
+    m_staticUploadDirty = true;
+    m_staticUploadFailed = false;
+    m_staticEmptyLabel->setText(QStringLiteral("暂无分布数据"));
+    m_staticLegend->hide();
+    m_staticEmptyLabel->show();
+    QToolTip::hideText();
+    layoutStaticOverlays();
+    update();
+}
+
+void PRPDChart::useRealtimeData() {
+    if (QThread::currentThread() != thread() || m_dataMode == ChartDataMode::Realtime) return;
+    const auto previousRange = getCurrentRange();
+    m_dataMode = ChartDataMode::Realtime;
+    m_staticHistogram.reset();
+    m_staticUploadDirty = true;
+    m_staticLegend->hide();
+    m_staticEmptyLabel->hide();
+    setMouseTracking(m_realtimeMouseTracking);
+    QToolTip::hideText();
+    if (m_realtimeCoordinateConfig) setConfig(*m_realtimeCoordinateConfig);
+    m_realtimeCoordinateConfig.reset();
+    update();
+    if (previousRange != getCurrentRange()) emit rangeChanged(m_displayMin, m_displayMax);
+}
+
+void PRPDChart::setStaticPointSize(float logicalPixels) {
+    if (QThread::currentThread() != thread() || !std::isfinite(logicalPixels) || logicalPixels <= 0.0f) return;
+    m_staticPointSize = logicalPixels;
+    if (m_dataMode == ChartDataMode::StaticSnapshot) update();
+}
+
+void PRPDChart::setStaticTooltipEnabled(bool enabled) {
+    if (QThread::currentThread() != thread() || m_staticTooltipEnabled == enabled) return;
+    m_staticTooltipEnabled = enabled;
+    if (m_dataMode == ChartDataMode::StaticSnapshot) {
+        setMouseTracking(enabled || m_realtimeMouseTracking || m_draggingAmplitudeRef);
+        if (!enabled) QToolTip::hideText();
+    }
+}
+
+void PRPDChart::setStaticColorLegendEnabled(bool enabled) {
+    if (QThread::currentThread() != thread()) return;
+    m_staticColorLegendEnabled = enabled;
+    m_staticLegend->setVisible(enabled && m_dataMode == ChartDataMode::StaticSnapshot &&
+        m_staticHistogram && !m_staticHistogram->empty());
+    layoutStaticOverlays();
+}
+
+void PRPDChart::paintStaticHistogram() {
+    if (m_staticUploadDirty) m_staticPointRenderers.clear();
+    if (!m_staticHistogram || m_staticHistogram->empty() || !renderOptions().data || m_staticUploadFailed) return;
+    auto timing = measureRenderStage(RenderStage::Data);
+    const auto& batches = m_staticHistogram->m_batches;
+    if (m_staticUploadDirty) {
+        for (std::size_t i = 0; i < batches.size(); ++i) {
+            auto renderer = std::make_unique<Point2D>();
+            renderer->initialize();
+            if (!renderer->prepareInstances(batches[i])) {
+                m_staticUploadDirty = false;
+                m_staticUploadFailed = true;
+                m_staticPointRenderers.clear();
+                m_staticEmptyLabel->setText(QStringLiteral("分布绘制失败，完整数据仍已保留"));
+                m_staticEmptyLabel->show();
+                layoutStaticOverlays();
+                return;
+            }
+            m_staticPointRenderers.push_back(std::move(renderer));
+        }
+    }
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    for (std::size_t i = 0; i < batches.size(); ++i) {
+        Primitive2DStyle style;
+        style.pointSize = m_staticPointSize * static_cast<float>(devicePixelRatioF());
+        m_staticPointRenderers[i]->setStyle(style);
+        m_staticPointRenderers[i]->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
+            batches[i], -1.0f, false);
+    }
+    m_staticUploadDirty = false;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+std::optional<HistogramCell> PRPDChart::histogramCellAt(const QPointF& pos) const {
+    if (m_dataMode != ChartDataMode::StaticSnapshot || !m_staticHistogram || m_staticUploadFailed || !renderOptions().data ||
+        !rect().contains(pos.toPoint())) return {};
+    bool invertible = false;
+    const auto inverse = (camera().getProjectionMatrix() * camera().getViewMatrix()).inverted(&invertible);
+    if (!invertible) return {};
+    const float x = static_cast<float>(2.0 * pos.x() / std::max(1, width()) - 1.0);
+    const float y = static_cast<float>(1.0 - 2.0 * pos.y() / std::max(1, height()));
+    auto near = inverse * QVector4D(x, y, -1.0f, 1.0f);
+    auto far = inverse * QVector4D(x, y, 1.0f, 1.0f);
+    if (std::abs(near.w()) < 1e-8f || std::abs(far.w()) < 1e-8f) return {};
+    near /= near.w(); far /= far.w();
+    const auto ray = far - near;
+    if (std::abs(ray.z()) < 1e-8f) return {};
+    const auto hit = near + ray * (-near.z() / ray.z());
+    const double phase = m_staticPhaseAxis.minimum + hit.x() / PRPDConstants::GL_AXIS_LENGTH *
+        (m_staticPhaseAxis.maximum - m_staticPhaseAxis.minimum);
+    const double amplitude = m_staticAmplitudeAxis.minimum + hit.y() / PRPDConstants::GL_AXIS_LENGTH *
+        (m_staticAmplitudeAxis.maximum - m_staticAmplitudeAxis.minimum);
+    return m_staticHistogram->cellAt(phase, amplitude);
+}
+
+void PRPDChart::layoutStaticOverlays() {
+    const QSize legend = m_staticLegend->sizeHint().boundedTo(size());
+    m_staticLegend->setGeometry(std::max(0, width() - legend.width() - 6), 6, legend.width(), std::max(1, std::min(legend.height(), height() - 12)));
+    m_staticEmptyLabel->adjustSize();
+    m_staticEmptyLabel->move((width() - m_staticEmptyLabel->width()) / 2, (height() - m_staticEmptyLabel->height()) / 2);
+}
+
+void PRPDChart::resizeEvent(QResizeEvent* event) {
+    Coordinate2D::resizeEvent(event);
+    layoutStaticOverlays();
+}
 } // namespace ProGraphics

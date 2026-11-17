@@ -1,6 +1,8 @@
 ﻿#pragma once
 
 #include "prographics/charts/coordinate/coordinate2d.h"
+#include "prographics/charts/offline_data.h"
+#include "prographics/charts/count_color_legend.h"
 #include "prographics/prographics_export.h"
 #include "prographics/utils/utils.h"
 #include <array>
@@ -8,6 +10,8 @@
 #include <vector>
 
 class QMouseEvent;
+class QLabel;
+class QResizeEvent;
 
 namespace ProGraphics {
 
@@ -62,6 +66,21 @@ namespace ProGraphics {
 
         ~PRPDChart() override;
 
+        // 快照在后台 prepare；以下提交和查询均在图表所属线程调用。
+        bool setStaticHistogram(PRPDHistogramSnapshot::Ptr snapshot);
+        void clearStaticHistogram(); ///< 清空静态数据并保留静态模式、坐标及实时缓存
+        void useRealtimeData(); ///< 显式退出静态模式，恢复进入前的实时缓存和坐标配置
+        ChartDataMode dataMode() const { return m_dataMode; }
+        PRPDHistogramSnapshot::Ptr staticHistogram() const { return m_staticHistogram; }
+        std::optional<HistogramCell> histogramCellAt(const QPointF& widgetPosition) const;
+        void setStaticPointSize(float logicalPixels); ///< 仅影响静态点大小，按设备像素比换算
+        float staticPointSize() const { return m_staticPointSize; }
+        void setStaticTooltipEnabled(bool enabled); ///< 默认开启；关闭时立即收起悬浮提示
+        bool isStaticTooltipEnabled() const { return m_staticTooltipEnabled; }
+        void setStaticColorLegendEnabled(bool enabled); ///< 默认开启；替换、清空及切换模式保留设置
+        bool isStaticColorLegendEnabled() const { return m_staticColorLegendEnabled; }
+        CountColorLegend* staticColorLegend() const { return m_staticLegend; }
+
         // ==================== 量程设置 API ====================
 
         /**
@@ -92,7 +111,7 @@ namespace ProGraphics {
         /**
          * @brief 获取当前量程模式
          */
-        RangeMode getRangeMode() const { return m_rangeMode; }
+        RangeMode getRangeMode() const { return m_dataMode == ChartDataMode::StaticSnapshot ? RangeMode::Fixed : m_rangeMode; }
 
         /**
          * @brief 获取当前显示范围
@@ -217,6 +236,7 @@ namespace ProGraphics {
          * @brief 重置所有数据
          */
         void resetData() {
+            if (m_dataMode == ChartDataMode::StaticSnapshot) { clearStaticHistogram(); return; }
             m_cycleBuffer.data.clear();
             m_cycleBuffer.binIndices.clear();
             m_cycleBuffer.currentIndex = 0;
@@ -274,7 +294,7 @@ namespace ProGraphics {
          * @brief 检查是否正在接受新数据
          * @return true 如果接受新数据
          */
-        bool isAcceptingData() const { return m_acceptData; }
+        bool isAcceptingData() const { return m_dataMode == ChartDataMode::Realtime && m_acceptData; }
 
     signals:
         // 仅在实际显示端点改变后发出，单位与幅值数据一致。
@@ -295,6 +315,8 @@ namespace ProGraphics {
 
         void mouseReleaseEvent(QMouseEvent *event) override;
 
+        void resizeEvent(QResizeEvent* event) override;
+
     private:
         // ==================== 内部数据结构 ====================
 
@@ -311,6 +333,19 @@ namespace ProGraphics {
         // ==================== 成员变量 ====================
 
         CycleBuffer m_cycleBuffer;
+        ChartDataMode m_dataMode = ChartDataMode::Realtime;
+        PRPDHistogramSnapshot::Ptr m_staticHistogram;
+        std::optional<Coordinate2D::Config> m_realtimeCoordinateConfig;
+        StaticAxis m_staticPhaseAxis, m_staticAmplitudeAxis;
+        std::vector<std::unique_ptr<Point2D>> m_staticPointRenderers;
+        bool m_staticUploadDirty = true;
+        bool m_staticUploadFailed = false;
+        bool m_realtimeMouseTracking = false;
+        bool m_staticTooltipEnabled = true;
+        bool m_staticColorLegendEnabled = true;
+        float m_staticPointSize = PRPDConstants::POINT_SIZE;
+        CountColorLegend* m_staticLegend = nullptr;
+        QLabel* m_staticEmptyLabel = nullptr;
         RangeWindow m_rangeWindow{PRPDConstants::MAX_CYCLES};
         FrequencyTable m_frequencyTable = FrequencyTable(PRPDConstants::PHASE_POINTS);
         std::vector<size_t> m_activeCells;
@@ -362,6 +397,10 @@ namespace ProGraphics {
         // ==================== 私有方法 ====================
 
         void queryDisplayedAmplitudeRange(float &displayMin, float &displayMax) const;
+
+        void paintStaticHistogram();
+        void layoutStaticOverlays();
+        bool rejectStaticConfiguration(const char* method) const;
 
         QVector3D unprojectWidgetToChartPlane(const QPoint &widgetPos) const;
 

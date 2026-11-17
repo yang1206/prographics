@@ -1,6 +1,11 @@
 #include "prographics/charts/prps/prps.h"
 #include "core/renderer/prps_renderer_p.h"
 #include "charts/cycle_phase_p.h"
+#include "charts/offline_view_p.h"
+#include <QApplication>
+#include <QLabel>
+#include <QMouseEvent>
+#include <QResizeEvent>
 #include <QHideEvent>
 #include <QShowEvent>
 #include <algorithm>
@@ -85,6 +90,10 @@ PRPSChart::PRPSChart(QWidget* parent) : Coordinate3D(parent) {
     m_animationTimer.setTimerType(Qt::PreciseTimer);
     connect(&m_animationTimer, &QTimer::timeout, this, &PRPSChart::updatePRPSAnimation);
     m_recycledGroups.reserve(PRPSConstants::MAX_LINE_GROUPS);
+    m_staticEmptyLabel = new QLabel(QStringLiteral("暂无事件数据"), this);
+    m_staticEmptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_staticEmptyLabel->setStyleSheet(QStringLiteral("QLabel { color: white; background: #263448; padding: 8px; }"));
+    m_staticEmptyLabel->hide();
 }
 
 PRPSChart::~PRPSChart() {
@@ -98,6 +107,7 @@ PRPSChart::~PRPSChart() {
 }
 
 void PRPSChart::resetData() {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) { clearStaticEvents(); return; }
     m_animationTimer.stop();
     m_animationClock.invalidate();
     makeCurrent();
@@ -149,7 +159,7 @@ void PRPSChart::hideEvent(QHideEvent* event) {
 }
 
 void PRPSChart::updateAnimationState() {
-    const bool shouldRun = m_animationVisible && isVisible() && !m_paused && !m_lineGroups.empty();
+    const bool shouldRun = m_dataMode == ChartDataMode::Realtime && m_animationVisible && isVisible() && !m_paused && !m_lineGroups.empty();
     if (shouldRun && !m_animationTimer.isActive()) {
         // 暂停或隐藏期间不累计动画时间，恢复时从当前画面继续。
         m_animationClock.start();
@@ -163,11 +173,23 @@ void PRPSChart::updateAnimationState() {
 void PRPSChart::initializeGLObjects() {
     Coordinate3D::initializeGLObjects();
     m_pulseRenderer.reset();
+    m_staticEventsDirty = true;
+    m_staticEventsFailed = false;
     for (auto& group : m_lineGroups) group->instanceBufferDirty = true;
     syncPhaseAmplitudePlaneDrawers();
 }
 
 void PRPSChart::paintGLObjects() {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) {
+        Coordinate3D::paintGLObjects();
+        paintStaticEvents();
+        if (renderOptions().referenceLines && hasVisiblePhaseAmplitudePlaneLines()) paintPhaseAmplitudePlaneLines();
+        return;
+    }
+    if (m_staticEventsDirty) {
+        if (m_pulseRenderer) m_pulseRenderer->clearEvents();
+        m_staticEventsDirty = false;
+    }
     if (m_lineTransformsDirty) {
         auto timing = measureRenderStage(RenderStage::Data);
         rebuildLineGroups();
@@ -285,13 +307,14 @@ void PRPSChart::paintPhaseAmplitudePlaneLines() {
     }
 
     const QMatrix4x4 projection = camera().getProjectionMatrix();
-    const float x0 = mapPhaseToGL(m_phaseMin);
-    const float x1 = mapPhaseToGL(m_phaseMax);
+    const float x0 = m_dataMode == ChartDataMode::StaticSnapshot ? 0.0f : mapPhaseToGL(m_phaseMin);
+    const float x1 = m_dataMode == ChartDataMode::StaticSnapshot ? PRPSConstants::GL_AXIS_LENGTH : mapPhaseToGL(m_phaseMax);
+    const auto [displayMin, displayMax] = getCurrentRange();
 
     for (size_t i = 0; i < m_phaseAmplitudePlaneSpecs.size(); ++i) {
         const PhaseAmplitudePlaneLine& spec = m_phaseAmplitudePlaneSpecs[i];
         if (!spec.visible || !std::isfinite(spec.amplitudeDbm) ||
-            spec.amplitudeDbm < m_displayMin || spec.amplitudeDbm > m_displayMax) {
+            spec.amplitudeDbm < displayMin || spec.amplitudeDbm > displayMax) {
             continue;
         }
 
@@ -308,6 +331,7 @@ void PRPSChart::paintPhaseAmplitudePlaneLines() {
 }
 
 void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return;
     if (!m_acceptData) {
         return;
     }
@@ -328,6 +352,7 @@ void PRPSChart::addCycleData(const std::vector<float>& cycleData) {
 }
 
 void PRPSChart::setDisplayLineCount(int count) {
+    if (rejectStaticConfiguration("setDisplayLineCount")) return;
     m_displayLineCount = count;
     recalculateLineGroups();
 }
@@ -387,6 +412,7 @@ void PRPSChart::processCycle(const std::vector<float>& cycleData) {
 }
 
 void PRPSChart::updatePRPSAnimation() {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) { updateAnimationState(); return; }
     if (m_paused || !m_animationVisible || !isVisible() || m_lineGroups.empty()) {
         updateAnimationState();
         return;
@@ -435,6 +461,7 @@ void PRPSChart::cleanupInactiveGroups() {
 // ==================== 量程设置 API 实现 ====================
 
 void PRPSChart::setFixedRange(float min, float max) {
+    if (rejectStaticConfiguration("setFixedRange")) return;
     LinearScale::Range range;
     if (!LinearScale::normalize(min, max, range, 0.0)) {
         qWarning() << "PRPS 量程端点必须为有限数值";
@@ -447,6 +474,7 @@ void PRPSChart::setFixedRange(float min, float max) {
 }
 
 void PRPSChart::setAutoRange(const DynamicRange::DynamicRangeConfig& config) {
+    if (rejectStaticConfiguration("setAutoRange")) return;
     const auto seed = getCurrentRange();
     m_rangeMode = RangeMode::Auto;
     m_dynamicRange.setConfig(config);
@@ -459,6 +487,7 @@ void PRPSChart::setAutoRange(const DynamicRange::DynamicRangeConfig& config) {
 }
 
 void PRPSChart::setAdaptiveRange(float initialMin, float initialMax, const DynamicRange::DynamicRangeConfig& config) {
+    if (rejectStaticConfiguration("setAdaptiveRange")) return;
     LinearScale::Range range;
     if (!LinearScale::normalize(initialMin, initialMax, range, 0.0)) {
         qWarning() << "PRPS 初始量程端点必须为有限数值";
@@ -477,16 +506,19 @@ void PRPSChart::setAdaptiveRange(float initialMin, float initialMax, const Dynam
 // ==================== 量程查询 API 实现 ====================
 
 std::pair<float, float> PRPSChart::getCurrentRange() const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return {static_cast<float>(m_staticAmplitudeAxis.minimum), static_cast<float>(m_staticAmplitudeAxis.maximum)};
     return {m_displayMin, m_displayMax};
 }
 
 std::pair<float, float> PRPSChart::getConfiguredRange() const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return getCurrentRange();
     return {m_configuredMin, m_configuredMax};
 }
 
 // ==================== 运行时调整 API 实现 ====================
 
 void PRPSChart::updateAutoRangeConfig(const DynamicRange::DynamicRangeConfig& config) {
+    if (rejectStaticConfiguration("updateAutoRangeConfig")) return;
     if (m_rangeMode == RangeMode::Auto || m_rangeMode == RangeMode::Adaptive) {
         m_dynamicRange.setConfig(config);
         forceUpdateRange();
@@ -504,6 +536,7 @@ void PRPSChart::switchToAutoRange() {
 // ==================== 硬限制 API 实现 ====================
 
 void PRPSChart::setHardLimits(float min, float max, bool enabled) {
+    if (rejectStaticConfiguration("setHardLimits")) return;
     m_dynamicRange.setHardLimits(min, max, enabled);
     if (m_rangeMode != RangeMode::Fixed) {
         forceUpdateRange();
@@ -515,6 +548,7 @@ std::pair<float, float> PRPSChart::getHardLimits() const {
 }
 
 void PRPSChart::enableHardLimits(bool enabled) {
+    if (rejectStaticConfiguration("enableHardLimits")) return;
     m_dynamicRange.enableHardLimits(enabled);
     if (m_rangeMode != RangeMode::Fixed) {
         forceUpdateRange();
@@ -565,6 +599,7 @@ void PRPSChart::updateAxisTicks(float min, float max) {
 }
 
 void PRPSChart::setPhaseRange(float min, float max) {
+    if (rejectStaticConfiguration("setPhaseRange")) return;
     if (!CyclePhase::validRange(min, max)) {
         qWarning() << "PRPS 相位范围必须为有限数值且下限小于上限";
         return;
@@ -577,6 +612,7 @@ void PRPSChart::setPhaseRange(float min, float max) {
 }
 
 void PRPSChart::setPhasePoint(int phasePoint) {
+    if (rejectStaticConfiguration("setPhasePoint")) return;
     if (phasePoint <= 0) {
         qWarning() << "PRPS 相位采样点数必须大于 0:" << phasePoint;
         return;
@@ -589,10 +625,14 @@ void PRPSChart::setPhasePoint(int phasePoint) {
 }
 
 float PRPSChart::mapPhaseToGL(double phase) const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return static_cast<float>((phase - m_staticPhaseAxis.minimum) /
+        (m_staticPhaseAxis.maximum - m_staticPhaseAxis.minimum) * PRPSConstants::GL_AXIS_LENGTH);
     return CyclePhase::toPosition(phase, m_phaseMin, m_phaseMax, PRPSConstants::GL_AXIS_LENGTH);
 }
 
 float PRPSChart::mapAmplitudeToGL(float amplitude) const {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) return static_cast<float>(std::clamp(
+        (amplitude - m_staticAmplitudeAxis.minimum) / (m_staticAmplitudeAxis.maximum - m_staticAmplitudeAxis.minimum), 0.0, 1.0) * PRPSConstants::GL_AXIS_LENGTH);
     const auto [displayMin, displayMax] = getCurrentRange();
 
     if (amplitude < displayMin) {
@@ -657,4 +697,185 @@ void PRPSChart::togglePause() {
     }
 }
 
+bool PRPSChart::rejectStaticConfiguration(const char* method) const {
+    if (m_dataMode != ChartDataMode::StaticSnapshot) return false;
+    qWarning() << method << "静态坐标由快照定义，请准备并提交新快照或先切回实时模式";
+    return true;
+}
+
+bool PRPSChart::setStaticEvents(PRPSEventSnapshot::Ptr snapshot) {
+    if (QThread::currentThread() != thread() || !snapshot) {
+        qWarning() << "静态 PRPS 需在所属线程提交有效快照";
+        return false;
+    }
+    if (m_dataMode == ChartDataMode::Realtime) {
+        if (m_animationTimer.isActive()) updatePRPSAnimation();
+        m_realtimeCoordinateConfig = config();
+    }
+    const auto previousRange = getCurrentRange();
+    m_staticEvents = std::move(snapshot);
+    m_staticPickCandidate = false;
+    m_dataMode = ChartDataMode::StaticSnapshot;
+    updateAnimationState();
+    const auto& d = m_staticEvents->data();
+    m_staticPhaseAxis = d.phase;
+    m_staticAmplitudeAxis = d.amplitude;
+    auto axes = config();
+    axes.size = PRPSConstants::GL_AXIS_LENGTH;
+    axes.names.enabled = axes.ticks.enabled = true;
+    axes.axis.enabled = axes.axis.z.visible = true;
+    OfflineView::configureAxis(axes.ticks.x, axes.names.x, d.phase);
+    OfflineView::configureAxis(axes.ticks.y, axes.names.y, d.amplitude);
+    OfflineView::configureAxis(axes.ticks.z, axes.names.z, d.sequence);
+    setConfig(axes);
+    m_staticEventsDirty = true;
+    m_staticEventsFailed = false;
+    m_staticEmptyLabel->setText(QStringLiteral("暂无事件数据"));
+    m_staticEmptyLabel->setVisible(m_staticEvents->empty());
+    layoutStaticOverlay();
+    update();
+    if (previousRange != getCurrentRange()) emit rangeChanged(getCurrentRange().first, getCurrentRange().second);
+    return true;
+}
+
+void PRPSChart::clearStaticEvents() {
+    if (QThread::currentThread() != thread() || m_dataMode != ChartDataMode::StaticSnapshot) return;
+    m_staticPickCandidate = false;
+    m_staticEvents.reset();
+    m_staticEventsDirty = true;
+    m_staticEventsFailed = false;
+    m_staticEmptyLabel->setText(QStringLiteral("暂无事件数据"));
+    m_staticEmptyLabel->show();
+    layoutStaticOverlay();
+    update();
+}
+
+void PRPSChart::useRealtimeData() {
+    if (QThread::currentThread() != thread() || m_dataMode == ChartDataMode::Realtime) return;
+    m_staticPickCandidate = false;
+    const auto previousRange = getCurrentRange();
+    m_dataMode = ChartDataMode::Realtime;
+    m_staticEvents.reset();
+    m_staticEventsDirty = true;
+    m_staticEmptyLabel->hide();
+    if (m_realtimeCoordinateConfig) setConfig(*m_realtimeCoordinateConfig);
+    m_realtimeCoordinateConfig.reset();
+    updateAnimationState();
+    update();
+    if (previousRange != getCurrentRange()) emit rangeChanged(m_displayMin, m_displayMax);
+}
+
+void PRPSChart::paintStaticEvents() {
+    if (!m_staticEvents || m_staticEvents->empty()) {
+        if (m_pulseRenderer) m_pulseRenderer->clearEvents();
+        return;
+    }
+    if (!renderOptions().data || m_staticEventsFailed) return;
+    auto timing = measureRenderStage(RenderStage::Data);
+    if (!m_pulseRenderer) m_pulseRenderer = std::make_unique<PRPSRenderer>();
+    if (m_staticEventsDirty) {
+        m_staticEventsDirty = false;
+        if (!m_pulseRenderer->uploadEvents(*m_staticEvents)) {
+            m_staticEventsFailed = true;
+            qWarning() << "静态 PRPS 缓冲上传失败，CPU 快照仍完整保留";
+            m_staticEmptyLabel->setText(QStringLiteral("事件绘制失败，完整数据仍已保留"));
+            m_staticEmptyLabel->show();
+            layoutStaticOverlay();
+            return;
+        }
+    }
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glLineWidth(1.0f);
+    if (!m_pulseRenderer->drawEvents(camera().getProjectionMatrix(), camera().getViewMatrix(), PRPSConstants::GL_AXIS_LENGTH)) {
+        m_staticEventsFailed = true;
+        qWarning() << "静态 PRPS 绘制失败，CPU 快照仍完整保留";
+        m_staticEmptyLabel->setText(QStringLiteral("事件绘制失败，完整数据仍已保留"));
+        m_staticEmptyLabel->show();
+        layoutStaticOverlay();
+    }
+}
+
+std::optional<StaticEventHit> PRPSChart::pickStaticEvent(const QPointF& pos, double tolerance) const {
+    if (m_dataMode != ChartDataMode::StaticSnapshot || !m_staticEvents || m_staticEventsFailed ||
+        !renderOptions().data || !std::isfinite(tolerance) || tolerance < 0.0 || !rect().contains(pos.toPoint())) return {};
+    const QMatrix4x4 matrix = camera().getProjectionMatrix() * camera().getViewMatrix();
+    double bestDistance = tolerance * tolerance;
+    double bestDepth = std::numeric_limits<double>::infinity();
+    std::optional<StaticEventHit> result;
+    const auto& instances = m_staticEvents->m_instances;
+    for (std::size_t i = 0; i < instances.size(); ++i) {
+        const auto& instance = instances[i];
+        const float x = instance.phaseHeight[0] * PRPSConstants::GL_AXIS_LENGTH;
+        const float y = instance.phaseHeight[1] * PRPSConstants::GL_AXIS_LENGTH;
+        const float z = instance.sequence * PRPSConstants::GL_AXIS_LENGTH;
+        QVector4D a = matrix * QVector4D(x, 0.0f, z, 1.0f);
+        QVector4D b = matrix * QVector4D(x, y, z, 1.0f);
+        // 与 GPU 一样先裁剪线段，避免相机背后或近裁面之外的事件误命中。
+        double low = 0.0, high = 1.0;
+        for (int axis = 0; axis < 3 && low <= high; ++axis) {
+            for (int sign : {-1, 1}) {
+                const double start = a.w() + sign * a[axis];
+                const double end = b.w() + sign * b[axis];
+                if (start < 0.0 && end < 0.0) { low = 1.0; high = 0.0; break; }
+                if (start < 0.0) low = std::max(low, start / (start - end));
+                else if (end < 0.0) high = std::min(high, start / (start - end));
+            }
+        }
+        if (low > high) continue;
+        const auto delta = b - a;
+        b = a + delta * static_cast<float>(high);
+        a += delta * static_cast<float>(low);
+        if (a.w() <= 1e-8f || b.w() <= 1e-8f) continue;
+        a /= a.w(); b /= b.w();
+        const QPointF start((a.x() + 1.0) * width() / 2.0, (1.0 - a.y()) * height() / 2.0);
+        const QPointF end((b.x() + 1.0) * width() / 2.0, (1.0 - b.y()) * height() / 2.0);
+        const auto line = end - start;
+        const double length = QPointF::dotProduct(line, line);
+        const double t = length > 0.0 ? std::clamp(QPointF::dotProduct(pos - start, line) / length, 0.0, 1.0) : 0.0;
+        const auto difference = pos - (start + line * t);
+        const double distance = QPointF::dotProduct(difference, difference);
+        const double depth = a.z() + t * (b.z() - a.z());
+        if (distance < bestDistance || (distance == bestDistance && depth < bestDepth)) {
+            bestDistance = distance;
+            bestDepth = depth;
+            result = m_staticEvents->event(i);
+        }
+    }
+    return result;
+}
+
+void PRPSChart::mousePressEvent(QMouseEvent* event) {
+    m_staticPressPosition = event->pos();
+    m_staticPickCandidate = m_dataMode == ChartDataMode::StaticSnapshot && event->button() == Qt::LeftButton;
+    Coordinate3D::mousePressEvent(event);
+}
+
+void PRPSChart::mouseMoveEvent(QMouseEvent* event) {
+    if ((QPointF(event->pos()) - m_staticPressPosition).manhattanLength() >= QApplication::startDragDistance())
+        m_staticPickCandidate = false;
+    Coordinate3D::mouseMoveEvent(event);
+}
+
+void PRPSChart::mouseReleaseEvent(QMouseEvent* event) {
+    Coordinate3D::mouseReleaseEvent(event);
+    const bool canPick = m_staticPickCandidate;
+    m_staticPickCandidate = false;
+    if (canPick && m_dataMode == ChartDataMode::StaticSnapshot && event->button() == Qt::LeftButton &&
+        (QPointF(event->pos()) - m_staticPressPosition).manhattanLength() < QApplication::startDragDistance()) {
+        const auto hit = pickStaticEvent(event->pos());
+        if (hit) emit staticEventSelected(static_cast<quint64>(hit->event.sourceEventId), static_cast<quint64>(hit->index));
+    }
+}
+
+void PRPSChart::layoutStaticOverlay() {
+    m_staticEmptyLabel->adjustSize();
+    m_staticEmptyLabel->move((width() - m_staticEmptyLabel->width()) / 2, (height() - m_staticEmptyLabel->height()) / 2);
+}
+
+void PRPSChart::resizeEvent(QResizeEvent* event) {
+    Coordinate3D::resizeEvent(event);
+    layoutStaticOverlay();
+}
 } // namespace ProGraphics

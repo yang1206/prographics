@@ -155,6 +155,123 @@ prps->resume();                 // 从当前位置按 0.5 倍速继续
 3. 分别在暂停、隐藏期间切速，等待数秒后恢复或显示，位置应从冻结处继续；清空数据后查询倍率并重新送入数据，应沿用所选倍率。
 4. 依次传入 0、负数、NaN、正负无穷，查询倍率应保持原值，暂停状态及已有周期应保持不变。
 
+## 离线静态快照
+
+静态入口直接使用已完成分箱的真实计数或逐事件坐标，不经过 `addCycleData()`。默认仍为实时模式。静态快照不受 PRPD 的 500 周期窗口、PRPS 的 80 线组、相位取峰或滚动时间影响；不会把计数拆成虚构周期，也不会把事件序号换算成秒或工频周期。
+
+| 操作 | 行为 |
+|---|---|
+| `PRPDChart::setStaticHistogram(PRPDHistogramSnapshot::Ptr)` | 原子替换整份静态分布，返回提交是否接受 |
+| `PRPSChart::setStaticEvents(PRPSEventSnapshot::Ptr)` | 原子替换整份逐事件序列，返回提交是否接受 |
+| `dataMode()` | 返回 `ChartDataMode::Realtime` 或 `ChartDataMode::StaticSnapshot` |
+| `clearStaticHistogram()` / `clearStaticEvents()` | 只在对应静态模式清空快照，保留坐标及模式，显示空状态 |
+| `resetData()` | 清空当前模式的数据；静态模式下不清除暂存的实时数据 |
+| `useRealtimeData()` | 显式切回实时模式，恢复进入前的坐标配置、周期缓存及 PRPS 位置；重新开始计时，不补算静态期间位移 |
+| `staticHistogram()` / `staticEvents()` | 取得当前不可变快照；清空或实时模式返回空指针 |
+
+进入静态模式后，实时周期输入被忽略，`isAcceptingData()` 返回 false。`pause()` / `resume()` 仍设置实时暂停与接收配置，`setPlaybackRate()` 仍保存实例倍率，但都不驱动静态动画，也不阻止显式替换快照。切回实时后使用最新暂停及倍率配置。`setAcceptData()` 同样只控制实时输入。
+
+静态坐标完整覆盖快照显式范围，`getRangeMode()` 为 Fixed；不自动调整量程。静态模式下 `setFixedRange()`、`setAutoRange()`、`setAdaptiveRange()`、`updateAutoRangeConfig()`、硬限制设置、`setPhaseRange()`、`setPhasePoint()` 以及 PRPS 的 `setDisplayLineCount()` 被拒绝，原快照不变。更改静态坐标、归一化或色表时，在后台准备新快照后替换。坐标样式、相机及现有 PRPS 旋转／缩放交互仍可使用；相机变化不改变数据色域。
+
+### 静态 PRPD 网格
+
+包含 `prographics/charts/offline_data.h` 和原 PRPD 头文件。边界数组分别为 `phaseBins+1`、`amplitudeBins+1`，须严格递增且有限，允许不等宽格。计数数组长度为 `phaseBins*amplitudeBins`，布局为 **phase-major：`counts[p * amplitudeBins + a]`**。数组原样保留；36×32 只有这些格子的真实信息，提供 200×128 才绘制那份更细网格，不插值、不重新分箱。
+
+```cpp
+using namespace ProGraphics;
+PRPDHistogramData data;
+data.phaseBins = 36;
+data.amplitudeBins = 32;
+for (int p = 0; p <= 36; ++p) data.phaseEdges.push_back(p * 10.0);
+for (int a = 0; a <= 32; ++a) data.amplitudeEdges.push_back(-70.0 + a * 70.0 / 32.0);
+data.counts = callerCounts;  // std::vector<uint64_t>，36×32 个真实计数
+data.amplitudeName = QStringLiteral("幅值");
+data.amplitudeUnit = QStringLiteral("dBm");
+CountColorOptions colors;
+colors.normalization = CountNormalization::Log1p; // 也支持 Linear
+colors.colorTable = {QColor("#2040ff"), QColor("#00ffff"), QColor("#ffff00"), QColor("#ff2020")};
+// colors.maximum = 10000; // 可选：跨快照固定计数色域，超出上限的计数饱和显示
+QString error;
+auto snapshot = PRPDHistogramSnapshot::prepare(std::move(data), colors, &error); // 可在工作线程执行
+// 将 snapshot 通过队列交给 GUI 线程；以下仅在 GUI 线程调用：
+if (snapshot) {
+    prpd->setStaticHistogram(snapshot);
+    prpd->setStaticPointSize(5.0f); // 逻辑像素，默认 8；仅影响静态点
+}
+```
+
+非零格在真实格中心绘制密度点，零格不生成点。点大小只影响外观，不增加分辨率。默认静态颜色使用蓝到红映射；自定义色表按归一化位置均匀取样。颜色插值仅是色表映射，不是网格数据插值。原有实时配色和点大小不变。
+
+默认色域是整份快照的最大计数，视窗或相机变化不重新计算。线性归一化为 `count/max`，对数为 `log1p(count)/log1p(max)`。`CountColorScale` 可单独提供颜色、归一化值及色标刻度；归一化和 GPU 坐标使用浮点显示，原始计数和色标文字仍为完整 uint64 真值。未指定固定色域且全零时，色域为零并显示空状态；显式固定上限必须大于零。
+
+图表右上角内置 `CountColorLegend`；`prpd->staticColorLegend()` 可设置字体。悬浮提示和内置色标各有独立开关，默认开启，可在提交快照前后调用：
+
+```cpp
+prpd->setStaticTooltipEnabled(false);     // 关闭鼠标悬浮提示，立即收起已显示的提示
+prpd->setStaticColorLegendEnabled(false); // 关闭内置颜色分度条
+// 对应查询：isStaticTooltipEnabled()、isStaticColorLegendEnabled()
+```
+
+开关配置在替换、清空快照和切换实时／静态模式时保留；色标开启后仅在静态快照有非零计数时显示。关闭悬浮不影响显式调用 `histogramCellAt()` 查询，关闭色标不改变散点颜色。离线示例顶部提供“悬浮提示”和“颜色分度条”复选框。
+
+应用也可在自己的布局中创建独立色标并调用 `legend->setColorScale(snapshot->colorScale())`，内置色标开关不控制外部色标。色标是 QWidget 叠层，若要同时导出色标及空状态文字，应抓取整个 widget，而不只取 `grabFramebuffer()`。
+
+查询接口保留真实边界及计数，包含零计数格：
+
+```cpp
+auto cell = snapshot->cell(phaseBin, amplitudeBin); // 按索引查询
+auto atValue = snapshot->cellAt(phase, amplitude); // 按物理坐标二分定位
+auto underMouse = prpd->histogramCellAt(mousePosition); // QWidget 逻辑像素坐标
+// 返回 optional<HistogramCell>，含两轴上下边界、两个箱索引和 uint64 count。
+```
+
+相位范围左闭右开；幅值分箱左闭右开，最后一格包含幅值最大端点。鼠标悬停可直接查看真实范围和计数，不在移动时重建统计或上传 GPU。
+
+### 静态 PRPS 逐事件序列
+
+每条事件独立保存 `phase`、`amplitude`、`sequence` 和 `sourceEventId`。三轴范围由调用方指定，事件必须在对应闭区间内；非有限值或越界值导致整份快照被拒绝，不悄悄钳位、丢点或排序。相同相位、相同 sequence、甚至重复源 ID 均原样保留，快照索引用于区分条目。
+
+```cpp
+PRPSEventSequenceData data;
+data.phase = {0.0, 360.0, QStringLiteral("相位"), QStringLiteral("°")};
+data.amplitude = {-70.0, 0.0, QStringLiteral("幅值"), QStringLiteral("dBm")};
+data.sequence = {0.0, 999.0, QStringLiteral("事件序号"), {}};
+data.events = callerEvents; // vector<PRPSStaticEvent>，可超过 80 条
+// 每项：{真实相位, 已换算的物理幅值, 显式序列坐标, 稳定源事件 ID}
+QString error;
+auto snapshot = PRPSEventSnapshot::prepare(std::move(data), &error); // 工作线程
+// GUI 线程：
+if (snapshot) prps->setStaticEvents(snapshot);
+QObject::connect(prps, &PRPSChart::staticEventSelected, receiver,
+    [receiver](quint64 sourceId, quint64 index) { /* 按源 ID 关联波形 */ });
+auto hit = prps->pickStaticEvent(mousePosition, 6.0); // 逻辑像素容差，单次点击查询
+auto exact = snapshot->event(index); // 无视遮挡，按索引取得完整事件及源 ID
+```
+
+序列轴必须命名，可改成调用方提供的真实“时间 / s”“周期 / 周期”等，库不进行换算。三个轴端点须严格有序且跨度有限；相位、幅值范围还需能由现有 float 参考线／量程接口表达，不能表达时明确拒绝。序列保留 double 绝对坐标，并使用归一化几何和 double 格式化刻度。
+
+竖线从幅值轴下限延伸到事件真实幅值；恰好在下限的事件线长为零，但仍在 CPU 快照及索引查询中。静态颜色复用 PRPS 按幅值映射的颜色，不使用实时滚动淡出。重叠事件仍分别保存及提交绘制；屏幕点选返回离鼠标最近的线，等距时优先近端、再按输入顺序。完全重合的其他条目通过快照索引查询。点选只在点击或显式查询时遍历事件，鼠标旋转不重建事件几何，也不执行悬停遍历。
+
+### 线程、所有权及绘制边界
+
+两个 `prepare()` 都不接触 QWidget 或 OpenGL，可以在调用方线程池执行；输入按值接收，建议 move 转交。失败返回空 shared_ptr 及可选中文错误文本。输出是 `shared_ptr<const ...>`，原始数组和预计算几何均由快照拥有；成功提交后调用方可释放自己的指针。快照的只读数据／查询可在持有 shared_ptr 的线程使用；widget API、widget 查询及所有 OpenGL 操作仅在所属 GUI 线程调用，错误线程提交返回 false。
+
+通过队列信号、`QMetaObject::invokeMethod(..., Qt::QueuedConnection)` 或工作任务的完成回调提交；不要在 GUI 线程调用 future.wait/get 或线程 wait 等待准备。示例 `examples/offline_demo.cpp` 演示 QThread 完成后按接收者生命周期投递结果，并用请求序号拒绝过期结果。
+
+每个绘制批次最多 65536 个点或事件，所有批次都绘制；这只是 GPU 缓冲分段，不是数据容量或显示窗口限制。完整 CPU 数据和事件身份一直保留。快照更换后在有效 OpenGL 上下文中上传，后续相机重绘复用缓冲；无交互时静态模式不启动滚动定时刷新。首次 GPU 上传仍有实际开销，内存需求随完整数据增长；本版本不做静默 LOD、抽样或容量裁剪。静态缓冲上传失败会显示错误并保留完整 CPU 数据。
+
+运行示例程序后，点击主窗口左侧控制面板顶部的“离线示例”按钮，即可弹出静态快照示例窗口，支持替换 36×32／200×128 网格、256 条含重复相位的事件及清空。它使用明确标记的演示数据，不代表真实设备测量。
+
+手工验收关注：
+
+1. 提交 36×32 和 200×128 网格，核对原始计数、边界、非零格数量及零格空白；用超过 2^53 的 uint64 计数核对查询及色标真值。
+2. 幅值固定 -70～0 dBm；对比线性、log1p 和自定义色表，旋转或缩放时色域不变。检查 100%／150%／200% 缩放下的点大小、色标和命中逻辑像素坐标。
+3. 提交超过 80 条事件，包括同相位同 sequence 多幅值、重复 ID、零线长及空序列，核对快照条目数、源 ID 和逐条查询；等待数秒不应滚动或淘汰。
+4. 替换、清空、暂停、隐藏、切换倍率及恢复实时模式，核对实时缓存、相位映射、旧配色和 80／500 窗口行为。
+5. 非递增边界、错误数组长度、NaN／Inf、越界事件应拒绝整份准备，原图继续保留；先完成的旧后台任务不得覆盖后发结果。
+
+本次交付只做源码静态审查，未编译、执行测试、运行示例或设备验证；编译兼容性、实际绘制效果、GPU 驱动、高 DPI、内存峰值及大数据性能尚未实测。
+
 ## 量程配置
 
 以下 API 两种图表均支持。示例中的 `RangeConfig` 是配置类型的简写：

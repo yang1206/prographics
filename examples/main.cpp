@@ -1,9 +1,11 @@
 #include "mainwindow.h"
 #include "stress_test_dialog.h"
+#include "offline_demo.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QTimer>
+#include <memory>
 
 int main(int argc, char *argv[]) {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
@@ -14,12 +16,18 @@ int main(int argc, char *argv[]) {
     QCommandLineParser parser;
     parser.setApplicationDescription("ProGraphics 图表调试工具");
     parser.addHelpOption();
+    parser.addOption({"offline", "打开静态 PRPD 网格与 PRPS 逐事件序列示例。"});
     parser.addOption({"stress", "直接打开性能压力测试窗口。"});
     parser.addOption({"stress-auto", "自动完成压测、保存 CSV 后退出；压力超载仍会保存报告。", "CSV路径"});
     parser.addOption({"stress-preset", "自动压测预设：daily、dense、steady、range。", "预设", "daily"});
     parser.addOption({"stress-warmup", "自动压测预热秒数，范围 1～60。", "秒数", "10"});
     parser.addOption({"stress-duration", "自动压测计时秒数，范围 1～3600。", "秒数", "60"});
     parser.process(a);
+    if (parser.isSet("offline")) {
+        std::unique_ptr<QWidget> window(createOfflineDemo());
+        window->show();
+        return QApplication::exec();
+    }
     if (parser.isSet("stress") || parser.isSet("stress-auto")) {
         const QStringList presets{"daily", "dense", "steady", "range"};
         const int presetIndex = presets.indexOf(parser.value("stress-preset"));

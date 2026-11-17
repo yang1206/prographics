@@ -32,12 +32,13 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 
 # 收集源文件 - 修改方式收集所有需要的文件
-file(GLOB_RECURSE PROGRAPHICS_SOURCES
+# 跟踪新增静态快照源码，已有构建目录也能在源码集合改变后重新配置。
+file(GLOB_RECURSE PROGRAPHICS_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
 
-file(GLOB_RECURSE PROGRAPHICS_HEADERS
+file(GLOB_RECURSE PROGRAPHICS_HEADERS CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/*.h"
 )
 

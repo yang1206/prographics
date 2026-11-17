@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "stress_test_dialog.h"
+#include "offline_demo.h"
 #include <QSplitter>
 #include <QScrollArea>
 #include <QFrame>
@@ -45,6 +46,20 @@ void MainWindow::setupUI() {
     QWidget *controlWidget = new QWidget();
     QVBoxLayout *controlLayout = new QVBoxLayout(controlWidget);
     controlLayout->setSpacing(8);
+
+    auto* offlineDemoBtn = new QPushButton(QStringLiteral("离线示例"));
+    controlLayout->addWidget(offlineDemoBtn);
+    connect(offlineDemoBtn, &QPushButton::clicked, this, [this] {
+        auto* dialog = new QDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        auto* demo = createOfflineDemo();
+        dialog->setWindowTitle(demo->windowTitle());
+        dialog->resize(1280, 700);
+        auto* layout = new QVBoxLayout(dialog);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(demo);
+        dialog->show();
+    });
 
     // ==================== 数据生成 ====================
     QGroupBox *dataGroup = new QGroupBox("数据生成");
