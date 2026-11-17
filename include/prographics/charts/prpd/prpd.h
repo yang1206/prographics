@@ -10,6 +10,7 @@
 #include <vector>
 
 class QMouseEvent;
+class QEvent;
 class QLabel;
 class QResizeEvent;
 
@@ -315,6 +316,8 @@ namespace ProGraphics {
 
         void mouseReleaseEvent(QMouseEvent *event) override;
 
+        void leaveEvent(QEvent* event) override;
+
         void resizeEvent(QResizeEvent* event) override;
 
     private:
@@ -344,6 +347,7 @@ namespace ProGraphics {
         bool m_staticTooltipEnabled = true;
         bool m_staticColorLegendEnabled = true;
         float m_staticPointSize = PRPDConstants::POINT_SIZE;
+        QVector2D m_staticPointSizeRange{1.0f, 1.0f};
         CountColorLegend* m_staticLegend = nullptr;
         QLabel* m_staticEmptyLabel = nullptr;
         RangeWindow m_rangeWindow{PRPDConstants::MAX_CYCLES};
@@ -399,6 +403,8 @@ namespace ProGraphics {
         void queryDisplayedAmplitudeRange(float &displayMin, float &displayMax) const;
 
         void paintStaticHistogram();
+        float staticPointSizeInDevicePixels() const;
+        std::optional<HistogramCell> pickStaticHistogramPoint(const QPointF& widgetPosition) const;
         void layoutStaticOverlays();
         bool rejectStaticConfiguration(const char* method) const;
 

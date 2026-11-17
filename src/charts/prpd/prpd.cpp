@@ -54,6 +54,10 @@ PRPDChart::~PRPDChart() {
 void PRPDChart::initializeGLObjects() {
     Coordinate2D::initializeGLObjects();
 
+    GLfloat pointSizeRange[2] = {1.0f, 1.0f};
+    glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, pointSizeRange);
+    m_staticPointSizeRange = QVector2D(pointSizeRange[0], pointSizeRange[1]);
+
     m_pointRenderer = std::make_unique<Point2D>();
 
     Primitive2DStyle pointStyle;
@@ -638,6 +642,7 @@ void PRPDChart::setAmplitudeReferenceLinePickTolerancePx(float pixels) {
 }
 
 void PRPDChart::mousePressEvent(QMouseEvent *event) {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) QToolTip::hideText();
     if (!m_amplitudeRefDragEnabled || event->button() != Qt::LeftButton) {
         QOpenGLWidget::mousePressEvent(event);
         return;
@@ -657,8 +662,9 @@ void PRPDChart::mousePressEvent(QMouseEvent *event) {
 }
 
 void PRPDChart::mouseMoveEvent(QMouseEvent *event) {
-    if (m_dataMode == ChartDataMode::StaticSnapshot && m_staticTooltipEnabled && !m_draggingAmplitudeRef) {
-        const auto hit = histogramCellAt(event->pos());
+    if (m_dataMode == ChartDataMode::StaticSnapshot && m_staticTooltipEnabled &&
+        !m_draggingAmplitudeRef && event->buttons() == Qt::NoButton) {
+        const auto hit = pickStaticHistogramPoint(event->pos());
         if (hit) QToolTip::showText(event->globalPos(), QStringLiteral("相位 [%1, %2)；幅值 [%3, %4%5；%6 %7")
             .arg(hit->phaseMinimum, 0, 'g', 10).arg(hit->phaseMaximum, 0, 'g', 10)
             .arg(hit->amplitudeMinimum, 0, 'g', 10).arg(hit->amplitudeMaximum, 0, 'g', 10)
@@ -666,6 +672,8 @@ void PRPDChart::mouseMoveEvent(QMouseEvent *event) {
             .arg(m_staticHistogram->colorScale().label())
             .arg(static_cast<qulonglong>(hit->count)), this);
         else QToolTip::hideText();
+    } else if (m_dataMode == ChartDataMode::StaticSnapshot) {
+        QToolTip::hideText();
     }
     if (m_draggingAmplitudeRef && m_draggingAmplitudeRefIndex >= 0) {
         const int idx = m_draggingAmplitudeRefIndex;
@@ -706,6 +714,11 @@ void PRPDChart::mouseReleaseEvent(QMouseEvent *event) {
         return;
     }
     QOpenGLWidget::mouseReleaseEvent(event);
+}
+
+void PRPDChart::leaveEvent(QEvent* event) {
+    if (m_dataMode == ChartDataMode::StaticSnapshot) QToolTip::hideText();
+    QOpenGLWidget::leaveEvent(event);
 }
 
 void PRPDChart::rebuildFrequencyTable() {
@@ -806,6 +819,7 @@ bool PRPDChart::setStaticHistogram(PRPDHistogramSnapshot::Ptr snapshot) {
     }
     m_dataMode = ChartDataMode::StaticSnapshot;
     m_staticHistogram = std::move(snapshot);
+    QToolTip::hideText();
     const auto& d = m_staticHistogram->data();
     m_staticPhaseAxis = {d.phaseEdges.front(), d.phaseEdges.back(), d.phaseName, d.phaseUnit};
     m_staticAmplitudeAxis = {d.amplitudeEdges.front(), d.amplitudeEdges.back(), d.amplitudeName, d.amplitudeUnit};
@@ -860,7 +874,10 @@ void PRPDChart::useRealtimeData() {
 void PRPDChart::setStaticPointSize(float logicalPixels) {
     if (QThread::currentThread() != thread() || !std::isfinite(logicalPixels) || logicalPixels <= 0.0f) return;
     m_staticPointSize = logicalPixels;
-    if (m_dataMode == ChartDataMode::StaticSnapshot) update();
+    if (m_dataMode == ChartDataMode::StaticSnapshot) {
+        QToolTip::hideText();
+        update();
+    }
 }
 
 void PRPDChart::setStaticTooltipEnabled(bool enabled) {
@@ -906,7 +923,7 @@ void PRPDChart::paintStaticHistogram() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     for (std::size_t i = 0; i < batches.size(); ++i) {
         Primitive2DStyle style;
-        style.pointSize = m_staticPointSize * static_cast<float>(devicePixelRatioF());
+        style.pointSize = staticPointSizeInDevicePixels();
         m_staticPointRenderers[i]->setStyle(style);
         m_staticPointRenderers[i]->drawInstanced(camera().getProjectionMatrix(), camera().getViewMatrix(),
             batches[i], -1.0f, false);
@@ -936,6 +953,95 @@ std::optional<HistogramCell> PRPDChart::histogramCellAt(const QPointF& pos) cons
     const double amplitude = m_staticAmplitudeAxis.minimum + hit.y() / PRPDConstants::GL_AXIS_LENGTH *
         (m_staticAmplitudeAxis.maximum - m_staticAmplitudeAxis.minimum);
     return m_staticHistogram->cellAt(phase, amplitude);
+}
+
+float PRPDChart::staticPointSizeInDevicePixels() const {
+    return std::clamp(m_staticPointSize * static_cast<float>(devicePixelRatioF()),
+        m_staticPointSizeRange.x(), m_staticPointSizeRange.y());
+}
+
+std::optional<HistogramCell> PRPDChart::pickStaticHistogramPoint(const QPointF& pos) const {
+    if (m_dataMode != ChartDataMode::StaticSnapshot || !m_staticHistogram || m_staticHistogram->empty() ||
+        m_staticUploadDirty || m_staticUploadFailed || !renderOptions().data || !rect().contains(pos.toPoint()) ||
+        (m_staticLegend->isVisible() && m_staticLegend->geometry().contains(pos.toPoint()))) return {};
+
+    const auto matrix = camera().getProjectionMatrix() * camera().getViewMatrix();
+    bool invertible = false;
+    const auto inverse = matrix.inverted(&invertible);
+    if (!invertible) return {};
+    // OpenGL 点大小已乘设备像素比，鼠标及这里的命中范围统一使用逻辑像素。
+    const double radius = staticPointSizeInDevicePixels() / devicePixelRatioF() * 0.5;
+    const double searchRadius = radius + 1.0 / devicePixelRatioF();
+    auto unproject = [&](double screenX, double screenY) -> std::optional<QVector2D> {
+        const float x = static_cast<float>(2.0 * screenX / width() - 1.0);
+        const float y = static_cast<float>(1.0 - 2.0 * screenY / height());
+        auto near = inverse * QVector4D(x, y, -1.0f, 1.0f);
+        auto far = inverse * QVector4D(x, y, 1.0f, 1.0f);
+        if (std::abs(near.w()) < 1e-8f || std::abs(far.w()) < 1e-8f) return {};
+        near /= near.w(); far /= far.w();
+        const auto ray = far - near;
+        if (std::abs(ray.z()) < 1e-8f) return {};
+        const auto point = near + ray * (-near.z() / ray.z());
+        if (!std::isfinite(point.x()) || !std::isfinite(point.y())) return {};
+        return QVector2D(point.x(), point.y());
+    };
+    // 先将点的像素范围反投影，只搜索附近的箱中心，不在移动时扫描整份网格。
+    QVector2D minimum(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+    QVector2D maximum(std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest());
+    for (int dx : {-1, 1}) {
+        for (int dy : {-1, 1}) {
+            const auto corner = unproject(pos.x() + dx * searchRadius, pos.y() + dy * searchRadius);
+            if (!corner) return {};
+            minimum.setX(std::min(minimum.x(), corner->x()));
+            minimum.setY(std::min(minimum.y(), corner->y()));
+            maximum.setX(std::max(maximum.x(), corner->x()));
+            maximum.setY(std::max(maximum.y(), corner->y()));
+        }
+    }
+    // 与 prepare() 生成 GPU 实例时使用同样的中心位置和 float 精度。
+    const auto centerPosition = [](const std::vector<double>& edges, std::size_t bin) {
+        const double center = edges[bin] + (edges[bin + 1] - edges[bin]) * 0.5;
+        return PRPDConstants::GL_AXIS_LENGTH * static_cast<float>(
+            (center - edges.front()) / (edges.back() - edges.front()));
+    };
+    const auto bound = [&](const std::vector<double>& edges, float value, bool upper) {
+        std::size_t first = 0, last = edges.size() - 1;
+        while (first < last) {
+            const auto middle = first + (last - first) / 2;
+            const auto center = centerPosition(edges, middle);
+            if (center < value || (upper && center == value)) first = middle + 1;
+            else last = middle;
+        }
+        return first;
+    };
+    const auto& data = m_staticHistogram->data();
+    const auto phaseFirst = bound(data.phaseEdges, minimum.x(), false);
+    const auto phaseLast = bound(data.phaseEdges, maximum.x(), true);
+    const auto amplitudeFirst = bound(data.amplitudeEdges, minimum.y(), false);
+    const auto amplitudeLast = bound(data.amplitudeEdges, maximum.y(), true);
+    std::optional<HistogramCell> result;
+    double bestDistance = std::numeric_limits<double>::infinity();
+    for (auto p = phaseFirst; p < phaseLast; ++p) {
+        for (auto a = amplitudeFirst; a < amplitudeLast; ++a) {
+            const auto count = data.counts[p * data.amplitudeBins + a];
+            if (count == 0 || m_staticHistogram->colorScale().color(count).alphaF() == 0.0) continue;
+            auto clip = matrix * QVector4D(centerPosition(data.phaseEdges, p),
+                centerPosition(data.amplitudeEdges, a), 0.0f, 1.0f);
+            if (clip.w() <= 1e-8f || std::abs(clip.x()) > clip.w() ||
+                std::abs(clip.y()) > clip.w() || std::abs(clip.z()) > clip.w()) continue;
+            clip /= clip.w();
+            const double dx = (clip.x() + 1.0) * width() / 2.0 - pos.x();
+            const double dy = (1.0 - clip.y()) * height() / 2.0 - pos.y();
+            // GL_POINTS 当前绘制方形点；不能把整个非零网格都当成点。
+            if (std::abs(dx) > radius || std::abs(dy) > radius) continue;
+            const double distance = dx * dx + dy * dy;
+            if (distance <= bestDistance) {
+                bestDistance = distance;
+                result = m_staticHistogram->cell(p, a);
+            }
+        }
+    }
+    return result;
 }
 
 void PRPDChart::layoutStaticOverlays() {
