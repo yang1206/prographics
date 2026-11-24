@@ -2,6 +2,7 @@
 #include "prographics/charts/prpd/prpd.h"
 #include "prographics/charts/prps/prps.h"
 #include <QCheckBox>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -39,6 +40,20 @@ QWidget* createOfflineDemo() {
     legendCheck->setChecked(prpd->isStaticColorLegendEnabled());
     controls->addWidget(tooltipCheck);
     controls->addWidget(legendCheck);
+    auto* selectionControls = new QWidget(window);
+    auto* selectionLayout = new QHBoxLayout(selectionControls);
+    selectionLayout->setContentsMargins(0, 0, 0, 0);
+    auto* selectionMode = new QComboBox(selectionControls);
+    selectionMode->addItem(QStringLiteral("普通交互"), static_cast<int>(Coordinate2D::SelectionMode::Disabled));
+    selectionMode->addItem(QStringLiteral("矩形选区"), static_cast<int>(Coordinate2D::SelectionMode::Rectangle));
+    selectionMode->addItem(QStringLiteral("多边形圈选"), static_cast<int>(Coordinate2D::SelectionMode::Polygon));
+    selectionMode->setToolTip(QStringLiteral("在 PRPD 绘图区按住左键拖动，释放提交。Esc 取消。"));
+    auto* cancelSelection = new QPushButton(QStringLiteral("取消绘制"), selectionControls);
+    auto* clearSelection = new QPushButton(QStringLiteral("清空选区"), selectionControls);
+    selectionLayout->addWidget(selectionMode);
+    selectionLayout->addWidget(cancelSelection);
+    selectionLayout->addWidget(clearSelection);
+    controls->addWidget(selectionControls);
     controls->addStretch();
     QObject::connect(tooltipCheck, &QCheckBox::toggled, prpd, &PRPDChart::setStaticTooltipEnabled);
     QObject::connect(legendCheck, &QCheckBox::toggled, prpd, &PRPDChart::setStaticColorLegendEnabled);
@@ -49,6 +64,33 @@ QWidget* createOfflineDemo() {
     auto* status = new QLabel(QStringLiteral("正在后台准备快照…"), window);
     status->setWordWrap(true);
     layout->addWidget(status);
+    const auto updateSelectionControls = [=](int tab) {
+        selectionControls->setEnabled(tab == 0);
+    };
+    updateSelectionControls(charts->currentIndex());
+    QObject::connect(charts, &QTabWidget::currentChanged, window, updateSelectionControls);
+    QObject::connect(selectionMode, &QComboBox::currentIndexChanged, prpd, [=](int) {
+        prpd->setSelectionMode(static_cast<Coordinate2D::SelectionMode>(selectionMode->currentData().toInt()));
+    });
+    QObject::connect(cancelSelection, &QPushButton::clicked, prpd, &Coordinate2D::cancelSelection);
+    QObject::connect(clearSelection, &QPushButton::clicked, prpd, &Coordinate2D::clearSelection);
+    QObject::connect(prpd, &Coordinate2D::selectionFinished, window, [=](const Coordinate2D::SelectionRegion& region) {
+        const auto* rectangle = std::get_if<QRectF>(&region);
+        const auto bounds = rectangle ? *rectangle : std::get<QPolygonF>(region).boundingRect();
+        const auto kind = rectangle ? QStringLiteral("矩形") : QStringLiteral("多边形（%1 个顶点）")
+            .arg(std::get<QPolygonF>(region).size());
+        status->setText(QStringLiteral("%1选区 · 相位 %2–%3 ° · 幅值 %4–%5 dBm")
+            .arg(kind).arg(bounds.left(), 0, 'f', 2).arg(bounds.right(), 0, 'f', 2)
+            .arg(bounds.top(), 0, 'f', 2).arg(bounds.bottom(), 0, 'f', 2));
+    });
+    QObject::connect(prpd, &Coordinate2D::selectionCanceled, window, [=] {
+        status->setText(prpd->selection() ? QStringLiteral("已取消本次绘制，保留上一选区")
+                                        : QStringLiteral("已取消选区绘制"));
+    });
+    QObject::connect(prpd, &Coordinate2D::selectionCleared, window, [=] {
+        status->setText(QStringLiteral("已清空选区"));
+    });
+
     struct Result {
         PRPDHistogramSnapshot::Ptr histogram;
         PRPSEventSnapshot::Ptr events;

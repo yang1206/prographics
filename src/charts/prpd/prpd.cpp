@@ -813,6 +813,7 @@ bool PRPDChart::setStaticHistogram(PRPDHistogramSnapshot::Ptr snapshot) {
         return false;
     }
     recordDiagnosticEvent(DiagnosticEvent::StaticSubmission);
+    const bool sourceChanged = snapshot != m_staticHistogram;
     const auto previousRange = getCurrentRange();
     if (m_dataMode == ChartDataMode::Realtime) {
         m_realtimeCoordinateConfig = config();
@@ -839,6 +840,7 @@ bool PRPDChart::setStaticHistogram(PRPDHistogramSnapshot::Ptr snapshot) {
     setMouseTracking(m_staticTooltipEnabled || m_realtimeMouseTracking || m_draggingAmplitudeRef);
     layoutStaticOverlays();
     update();
+    if (sourceChanged) clearSelection();
     if (previousRange != getCurrentRange()) emit rangeChanged(getCurrentRange().first, getCurrentRange().second);
     return true;
 }
@@ -854,6 +856,7 @@ void PRPDChart::clearStaticHistogram() {
     QToolTip::hideText();
     layoutStaticOverlays();
     update();
+    clearSelection();
 }
 
 void PRPDChart::useRealtimeData() {
@@ -869,6 +872,7 @@ void PRPDChart::useRealtimeData() {
     if (m_realtimeCoordinateConfig) setConfig(*m_realtimeCoordinateConfig);
     m_realtimeCoordinateConfig.reset();
     update();
+    clearSelection();
     if (previousRange != getCurrentRange()) emit rangeChanged(m_displayMin, m_displayMax);
 }
 
@@ -935,28 +939,25 @@ void PRPDChart::paintStaticHistogram() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
+QRectF PRPDChart::chartDataRect() const {
+    if (m_dataMode == ChartDataMode::Realtime) return Coordinate2D::chartDataRect();
+    return QRectF(QPointF(m_staticPhaseAxis.minimum, m_staticAmplitudeAxis.minimum),
+                  QPointF(m_staticPhaseAxis.maximum, m_staticAmplitudeAxis.maximum));
+}
+
+bool PRPDChart::canStartSelectionAt(const QPointF& pos) const {
+    if (m_draggingAmplitudeRef) return false;
+    if (m_dataMode == ChartDataMode::Realtime) return true;
+    return m_staticHistogram &&
+        !(m_staticLegend->isVisible() && QRectF(m_staticLegend->geometry()).contains(pos)) &&
+        !(m_staticEmptyLabel->isVisible() && QRectF(m_staticEmptyLabel->geometry()).contains(pos));
+}
+
 std::optional<HistogramCell> PRPDChart::histogramCellAt(const QPointF& pos) const {
-    if (m_dataMode != ChartDataMode::StaticSnapshot || !m_staticHistogram || m_staticUploadFailed || !renderOptions().data ||
-        !rect().contains(pos.toPoint())) return {};
-    bool invertible = false;
-    const auto inverse = (camera().getProjectionMatrix() * camera().getViewMatrix()).inverted(&invertible);
-    if (!invertible) return {};
-    const float x = static_cast<float>(2.0 * pos.x() / std::max(1, width()) - 1.0);
-    const float y = static_cast<float>(1.0 - 2.0 * pos.y() / std::max(1, height()));
-    auto near = inverse * QVector4D(x, y, -1.0f, 1.0f);
-    auto far = inverse * QVector4D(x, y, 1.0f, 1.0f);
-    if (std::abs(near.w()) < 1e-8f || std::abs(far.w()) < 1e-8f) return {};
-    near /= near.w(); far /= far.w();
-    const auto ray = far - near;
-    if (std::abs(ray.z()) < 1e-8f) return {};
-    const float distance = -near.z() / ray.z();
-    if (!std::isfinite(distance) || distance < 0.0f || distance > 1.0f) return {};
-    const auto hit = near + ray * distance;
-    const double phase = m_staticPhaseAxis.minimum + hit.x() / PRPDConstants::GL_AXIS_LENGTH *
-        (m_staticPhaseAxis.maximum - m_staticPhaseAxis.minimum);
-    const double amplitude = m_staticAmplitudeAxis.minimum + hit.y() / PRPDConstants::GL_AXIS_LENGTH *
-        (m_staticAmplitudeAxis.maximum - m_staticAmplitudeAxis.minimum);
-    return m_staticHistogram->cellAt(phase, amplitude);
+    if (m_dataMode != ChartDataMode::StaticSnapshot || !m_staticHistogram || m_staticUploadFailed ||
+        !renderOptions().data || !QRectF(rect()).contains(pos)) return {};
+    const auto point = mapToChart(pos);
+    return point ? m_staticHistogram->cellAt(point->x(), point->y()) : std::nullopt;
 }
 
 float PRPDChart::staticPointSizeInDevicePixels() const {

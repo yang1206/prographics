@@ -293,6 +293,9 @@ namespace ProGraphics {
         void amplitudeReferenceLineDragEnded(int index, float amplitudeDbm);
 
     protected:
+        QRectF chartDataRect() const override;
+        bool canStartSelectionAt(const QPointF& widgetPosition) const override;
+
         void initializeGLObjects() override;
 
         void paintGLObjects() override;

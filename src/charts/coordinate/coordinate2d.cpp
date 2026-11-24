@@ -3,7 +3,6 @@
 //
 
 #include "prographics/charts/coordinate/coordinate2d.h"
-#include <QMouseEvent>
 #include "core/renderer/coordinate_text_layer_p.h"
 
 namespace ProGraphics {
@@ -235,18 +234,15 @@ namespace ProGraphics {
     }
   }
 
-  void Coordinate2D::resizeGL(int w, int h) {
-    setupCamera();
-    BaseGLWidget::resizeGL(w, h);
-  }
-
   void Coordinate2D::setConfig(const Config &config) {
     recordDiagnosticEvent(DiagnosticEvent::CoordinateConfig);
     m_config = config;
+    setupCamera();
     updateAxisSystem();
     updateGridSystem();
     updateNameSystem();
     updateTickSystem();
+    refreshSelectionProjection();
     update();
   }
 
@@ -257,6 +253,7 @@ namespace ProGraphics {
     updateGridSystem();
     updateNameSystem();
     updateTickSystem();
+    refreshSelectionProjection();
     update();
   }
 
@@ -445,6 +442,7 @@ namespace ProGraphics {
       m_config.ticks.y.range.step = step;
     }
     updateTickSystem();
+    refreshSelectionProjection();
     update();
   }
 
@@ -499,12 +497,14 @@ namespace ProGraphics {
     m_config.margin.top = top;
     m_config.margin.bottom = bottom;
     setupCamera();
+    refreshSelectionProjection();
     update();
   }
 
   void Coordinate2D::setDisplayMode(DisplayMode mode) {
     m_config.displayMode = mode;
     setupCamera();
+    refreshSelectionProjection();
     update();
   }
 

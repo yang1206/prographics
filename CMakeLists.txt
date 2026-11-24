@@ -10,7 +10,7 @@ project(ProGraphics
 # 设置CMake选项
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
-option(PROGRAPHICS_BUILD_TESTS "Build deterministic numeric regression tests" OFF)
+option(PROGRAPHICS_BUILD_TESTS "Build ProGraphics regression tests" OFF)
 option(PROGRAPHICS_INSTALL "Install ProGraphics targets" ${PROJECT_IS_TOP_LEVEL})
 
 # 设置CMake变量
@@ -221,7 +221,7 @@ if (PROGRAPHICS_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif ()
 
-# 纯数值回归不创建 QApplication，也不需要 OpenGL 上下文。
+# 数值与选区回归均无需 OpenGL 上下文。
 if (PROGRAPHICS_BUILD_TESTS)
     enable_testing()
     add_executable(ProGraphicsRangeTests tests/range_tests.cpp)
@@ -241,4 +241,9 @@ if (PROGRAPHICS_BUILD_TESTS)
         target_compile_options(ProGraphicsPhaseTests PRIVATE /utf-8)
     endif ()
     add_test(NAME ProGraphics.Phase COMMAND ProGraphicsPhaseTests)
+
+    add_executable(ProGraphicsChartSelectionTests tests/chart_selection_tests.cpp)
+    target_link_libraries(ProGraphicsChartSelectionTests PRIVATE ProGraphics::ProGraphics)
+    add_test(NAME ProGraphics.ChartSelection COMMAND ProGraphicsChartSelectionTests)
+    set_tests_properties(ProGraphics.ChartSelection PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif ()

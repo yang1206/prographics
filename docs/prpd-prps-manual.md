@@ -234,6 +234,31 @@ QObject::connect(prps, &PRPSChart::staticEventSelected, receiver,
 
 `prepare()` 可以在后台执行，失败时返回空指针，并将原因写入可选的 `QString* error`。准备完成后，通过队列信号或 GUI 线程回调提交快照；所有图表操作和图表查询都在 GUI 线程调用。不要在 GUI 线程等待后台准备完成。后台提交示例见 [offline_demo.cpp](../examples/offline_demo.cpp)。
 
+### 二维绘图区选区
+
+`Coordinate2D` 图表可以启用矩形选区或多边形圈选。纯左键在绘图区开始拖动，松开提交。多边形沿鼠标轨迹采样并隐式闭合。Esc 或 `cancelSelection()` 放弃当前绘制并保留上次结果。切换工具、失焦、控件隐藏或改变尺寸也会取消当前绘制。启用工具后，该手势优先于 PRPD 参考线拖动。选择“普通交互”可恢复默认手势，已完成的选区会保留，直至清空或被替换。
+
+```cpp
+using Chart = ProGraphics::Coordinate2D;
+prpd->setSelectionMode(Chart::SelectionMode::Rectangle);
+// 也可选择 Chart::SelectionMode::Polygon。
+QObject::connect(prpd, &Chart::selectionFinished, prpd,
+    [](const Chart::SelectionRegion& region) {
+        // phase 和 amplitude 来自应用保存的脉冲记录。
+        const auto containsPulse = [&region](double phase, double amplitude) {
+            const QPointF point(phase, amplitude);
+            if (const auto* rectangle = std::get_if<QRectF>(&region))
+                return rectangle->contains(point);
+            return std::get<QPolygonF>(region).containsPoint(point, Qt::OddEvenFill);
+        };
+        // 使用 containsPulse 筛选原始记录，再做分组或其它图表联动。
+    });
+```
+
+静态 PRPD 返回快照坐标中的连续相位与幅值。矩形的 `left()/top()` 是相位、幅值下限，`right()/bottom()` 是上限。多边形包含数据坐标顶点，区域判断采用 `Qt::OddEvenFill`。如需在回调后继续使用结果，请复制该值，也可调用 `selection()` 读取当前选区。`finishSelection()` 可提交当前草稿，`clearSelection()` 可放弃草稿并清空上次结果。图表分别发出 `selectionFinished`、`selectionCanceled` 和 `selectionCleared`。
+
+已完成的选区随窗口、布局或显示量程重新投影。替换或清空静态快照、切回实时数据会清空选区。要把逻辑像素与实际轴坐标相互转换，可使用 `mapToChart()` 和 `mapFromChart()`。应用使用自身数据执行筛选和联动。
+
 ## 量程配置
 
 以下 API 两种图表均支持。示例中的 `RangeConfig` 是配置类型的简写：
@@ -363,7 +388,7 @@ prpd->setTicksFormatter('y', [](float value) {
 
 ## 示例与压力测试
 
-启用 `PROGRAPHICS_BUILD_EXAMPLES` 后可构建 `ProGraphicsExamples`。示例提供数据生成、量程切换、参考线及暂停控制。点击左侧控制面板顶部的“离线示例”按钮，可打开静态图谱；在“事件数量”中填写条数后点击“生成数据”，通过 PRPD、PRPS 页签分别查看分布和事件序列。
+启用 `PROGRAPHICS_BUILD_EXAMPLES` 后可构建 `ProGraphicsExamples`。示例提供数据生成、量程切换、参考线及暂停控制。点击左侧控制面板顶部的“离线示例”按钮，可打开静态图谱；在“事件数量”中填写条数后点击“生成数据”，通过 PRPD、PRPS 页签分别查看分布和事件序列。在 PRPD 页签中切换“矩形选区”或“多边形圈选”，提交后可查看选区的相位和幅值范围。
 
 在示例左侧选择 **调试工具 → 性能压力测试**，设置通道数、相位点数、周期速率和测试时长，开始测试后可导出 CSV。比较性能时使用 Release，并保持设备、窗口尺寸、屏幕缩放和负载一致。
 
