@@ -12,6 +12,7 @@ namespace ProGraphics {
   class AxisTicks;
   class AxisName;
   class Grid;
+  class CoordinateTextLayer;
 
   /**
    * @brief 三维坐标系统类
@@ -311,9 +312,7 @@ namespace ProGraphics {
      */
     void resetCameraToOptimalView();
 
-    Camera camera() {
-      return m_camera;
-    }
+    Camera camera() const { return m_camera; }
 
   protected:
     /**
@@ -412,6 +411,7 @@ namespace ProGraphics {
     std::unique_ptr<Grid> m_gridSystem; ///< 网格系统
     std::unique_ptr<AxisName> m_nameSystem; ///< 名称系统
     std::unique_ptr<AxisTicks> m_tickSystem; ///< 刻度系统
+    std::unique_ptr<CoordinateTextLayer> m_textLayer;
 
     QColor m_backgroundcolor{46, 59, 84}; ///< 背景颜色
 

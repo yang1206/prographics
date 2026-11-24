@@ -29,13 +29,11 @@ namespace ProGraphics {
       /**
        * @brief 刻度值格式化函数
        *
-       * 默认保留一位小数
+       * 默认按步长确定精度，至少保留一位小数；自定义函数自行决定精度。
        * @param value 刻度数值
        * @return 格式化后的文本
        */
-      std::function<QString(float)> formatter = [](float value) {
-        return QString::number(value, 'f', 1);
-      };
+      std::function<QString(float)> formatter;
 
       /**
     * @brief 刻度范围配置结构

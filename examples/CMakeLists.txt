@@ -19,6 +19,10 @@ list(APPEND EXAMPLE_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/offline_demo.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/offline_demo.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stress_test_dialog.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stress_test_dialog.cpp"
 )
 
 # 创建可执行文件
@@ -37,7 +41,12 @@ target_compile_definitions(ProGraphicsExamples
         PRIVATE
         PROGRAPHICS_IMPORTS
         QT_SHARED
+        PROGRAPHICS_EXAMPLE_BUILD_TYPE="$<CONFIG>"
 )
+
+if (WIN32)
+    target_link_libraries(ProGraphicsExamples PRIVATE psapi)
+endif ()
 
 # 包含二进制目录以找到生成的导出头文件
 target_include_directories(ProGraphicsExamples

@@ -10,6 +10,7 @@ project(ProGraphics
 # 设置CMake选项
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(PROGRAPHICS_BUILD_EXAMPLES "Build ProGraphics examples" ON)
+option(PROGRAPHICS_BUILD_TESTS "Build ProGraphics regression tests" OFF)
 option(PROGRAPHICS_INSTALL "Install ProGraphics targets" ${PROJECT_IS_TOP_LEVEL})
 
 # 设置CMake变量
@@ -31,18 +32,20 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 
 # 收集源文件 - 修改方式收集所有需要的文件
-file(GLOB_RECURSE PROGRAPHICS_SOURCES
+# 跟踪新增静态快照源码，已有构建目录也能在源码集合改变后重新配置。
+file(GLOB_RECURSE PROGRAPHICS_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
 
-file(GLOB_RECURSE PROGRAPHICS_HEADERS
+file(GLOB_RECURSE PROGRAPHICS_HEADERS CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/*.h"
 )
 
 # 明确列出带有Q_OBJECT宏的头文件
 set(WRAPPED_HEADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/charts/base/gl_widget.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/charts/prpd/prpd.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/prographics/utils/orbit_controls.h"
 )
 
@@ -216,4 +219,31 @@ endif ()
 # 构建示例
 if (PROGRAPHICS_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif ()
+
+# 数值与选区回归均无需 OpenGL 上下文。
+if (PROGRAPHICS_BUILD_TESTS)
+    enable_testing()
+    add_executable(ProGraphicsRangeTests tests/range_tests.cpp)
+    set_target_properties(ProGraphicsRangeTests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_include_directories(ProGraphicsRangeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_features(ProGraphicsRangeTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(ProGraphicsRangeTests PRIVATE /utf-8)
+    endif ()
+    add_test(NAME ProGraphics.Range COMMAND ProGraphicsRangeTests)
+
+    add_executable(ProGraphicsPhaseTests tests/phase_tests.cpp)
+    set_target_properties(ProGraphicsPhaseTests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_include_directories(ProGraphicsPhaseTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(ProGraphicsPhaseTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(ProGraphicsPhaseTests PRIVATE /utf-8)
+    endif ()
+    add_test(NAME ProGraphics.Phase COMMAND ProGraphicsPhaseTests)
+
+    add_executable(ProGraphicsChartSelectionTests tests/chart_selection_tests.cpp)
+    target_link_libraries(ProGraphicsChartSelectionTests PRIVATE ProGraphics::ProGraphics)
+    add_test(NAME ProGraphics.ChartSelection COMMAND ProGraphicsChartSelectionTests)
+    set_tests_properties(ProGraphics.ChartSelection PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif ()

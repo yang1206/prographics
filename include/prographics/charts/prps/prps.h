@@ -1,13 +1,24 @@
 ﻿#pragma once
 
+#include <QElapsedTimer>
 #include <QMutex>
 #include <QThread>
+#include <QTimer>
 #include <QWaitCondition>
+#include "prographics/prographics_export.h"
 #include "prographics/charts/coordinate/coordinate3d.h"
+#include "prographics/charts/offline_data.h"
 #include "prographics/core/graphics/primitive2d.h"
 #include "prographics/utils/utils.h"
+#include <memory>
+#include <deque>
+#include <vector>
+
+class QLabel;
+class QResizeEvent;
 
 namespace ProGraphics {
+  class PRPSRenderer;
   /**
    * @brief PRPS 图表相关常量
    */
@@ -25,7 +36,20 @@ namespace ProGraphics {
   };
 
   /**
-   * @brief 动画更新线程
+   * @brief PRPS 相位–幅值平面（XY）上的水平参考线。
+   *
+   * 与 Coordinate3D 中 Axis / XY 网格一致：局部顶点 z=0，不传额外的 translate-Z；
+   * 与沿 Z 轴滚动的脉冲竖线切片区分开。
+   */
+  struct PhaseAmplitudePlaneLine {
+    float amplitudeDbm = 0.0f;
+    QVector4D color{1.0f, 0.0f, 0.0f, 1.0f};
+    float lineWidth = 2.0f;
+    bool visible = true;
+  };
+
+  /**
+   * @brief 动画更新线程（保留兼容；图表内部改用 GUI 线程定时器）
    */
   class UpdateThread : public QThread {
     Q_OBJECT
@@ -61,7 +85,7 @@ namespace ProGraphics {
    * 用于显示局部放电信号的三维时序演变。
    * 支持三种量程模式：固定、自动、自适应。
    */
-  class PRPSChart : public Coordinate3D {
+  class PROGRAPHICS_EXPORT PRPSChart : public Coordinate3D {
     Q_OBJECT
 
   public:
@@ -77,6 +101,14 @@ namespace ProGraphics {
     explicit PRPSChart(QWidget *parent = nullptr);
 
     ~PRPSChart() override;
+
+    // 快照可在工作线程 prepare；提交及图表查询在所属 GUI 线程调用。
+    bool setStaticEvents(PRPSEventSnapshot::Ptr snapshot);
+    void clearStaticEvents(); ///< 留在静态模式，保留坐标、暂停配置及倍率
+    void useRealtimeData(); ///< 恢复进入静态模式前的实时周期及坐标，从当前位置重新计时
+    ChartDataMode dataMode() const { return m_dataMode; }
+    PRPSEventSnapshot::Ptr staticEvents() const { return m_staticEvents; }
+    std::optional<StaticEventHit> pickStaticEvent(const QPointF& widgetPosition, double tolerancePixels = 6.0) const;
 
     // ==================== 量程设置 API ====================
 
@@ -108,7 +140,7 @@ namespace ProGraphics {
     /**
      * @brief 获取当前量程模式
      */
-    RangeMode getRangeMode() const { return m_rangeMode; }
+    RangeMode getRangeMode() const { return m_dataMode == ChartDataMode::StaticSnapshot ? RangeMode::Fixed : m_rangeMode; }
 
     /**
      * @brief 获取当前显示范围
@@ -169,7 +201,8 @@ namespace ProGraphics {
 
     /**
      * @brief 添加一个周期的放电数据
-     * @param cycleData 幅值数组，长度必须等于 PHASE_POINTS
+     * @param cycleData 幅值数组，长度必须等于当前配置的相位采样点数
+     * 第 i 点相位为 min + i * (max - min) / N，周期范围左闭右开。
      */
     void addCycleData(const std::vector<float> &cycleData);
 
@@ -179,12 +212,15 @@ namespace ProGraphics {
     void setThreshold(float threshold) { m_threshold = threshold; }
 
     /**
-     * @brief 设置相位范围
+     * @brief 设置周期相位范围 [min, max)，默认 [0, 360)
+     * @param min 有限下限，必须小于 max；无效范围被拒绝
+     * @param max 有限上限；同时更新保留周期的相位映射及刻度，不清空数据
      */
     void setPhaseRange(float min, float max);
 
     /**
      * @brief 设置相位采样点数
+     * @param phasePoint 正整数；点数改变时清空旧周期数据，保持量程及暂停配置
      */
     void setPhasePoint(int phasePoint);
 
@@ -192,6 +228,7 @@ namespace ProGraphics {
      * @brief 设置每周期绘制的竖线数量（分桶峰值降采样）
      *
      * 当 count 大于等于每周期采样点数，或 count &lt;= 0 时，恢复为每个采样点一根线（与原先一致）。
+     * 分桶后保留峰值原采样点的相位；同幅值取桶内最早有效点。
      */
     void setDisplayLineCount(int count);
 
@@ -201,12 +238,44 @@ namespace ProGraphics {
     int displayLineCount() const { return m_displayLineCount; }
 
     /**
-     * @brief 设置动画更新间隔
+     * @brief 设置相位–幅值平面（XY）上的水平参考线（替换整条列表）。
+     *
      */
-    void setUpdateInterval(int intervalMs) { m_updateThread.setUpdateInterval(intervalMs); }
+    void setPhaseAmplitudePlaneLines(const std::vector<PhaseAmplitudePlaneLine> &lines);
 
     /**
-     * @brief 重置所有数据（含 PRPS 线图元；需在 OpenGL 上下文中销毁 GPU 资源）
+     * @brief 移除上述参考线。
+     */
+    void clearPhaseAmplitudePlaneLines();
+
+    /**
+     * @brief 当前参考线配置（只读）。
+     */
+    const std::vector<PhaseAmplitudePlaneLine> &phaseAmplitudePlaneLines() const {
+      return m_phaseAmplitudePlaneSpecs;
+    }
+
+    /**
+     * @brief 设置动画更新间隔
+     * @param intervalMs 正整数，单位毫秒；只影响刷新频率，不改变滚动速度
+     */
+    void setUpdateInterval(int intervalMs);
+
+    /**
+     * @brief 设置滚动动画的时间倍率，默认 1.0，仅作用于当前图表
+     * @param rate 正有限数，例如 0.1、0.2、0.5、1.0；非法值被拒绝并保留原倍率
+     * 切换时按旧倍率结算已运行的时间，不重置已有周期；0 不表示暂停，请使用 pause()/resume()。
+     * 暂停或隐藏时只保存倍率，恢复后生效；不改变刷新间隔或输入周期的含义。
+     */
+    void setPlaybackRate(double rate);
+
+    /**
+     * @brief 获取当前滚动动画的时间倍率
+     */
+    double playbackRate() const { return m_playbackRate; }
+
+    /**
+     * @brief 重置所有数据，保留阈值、显示、滚动倍率及暂停配置
      */
     void resetData();
 
@@ -254,12 +323,27 @@ namespace ProGraphics {
      * @brief 检查是否正在接受新数据
      * @return true 如果接受新数据
      */
-    bool isAcceptingData() const { return m_acceptData; }
+    bool isAcceptingData() const { return m_dataMode == ChartDataMode::Realtime && m_acceptData; }
+
+  signals:
+    // 左键单击竖线，返回原始源 ID 和快照中的稳定索引；拖动旋转不触发。
+    void staticEventSelected(quint64 sourceEventId, quint64 eventIndex);
+    // 仅在实际显示端点改变后发出，单位与幅值数据一致。
+    void rangeChanged(float min, float max);
 
   protected:
     void initializeGLObjects() override;
 
     void paintGLObjects() override;
+
+    void showEvent(QShowEvent *event) override;
+
+    void hideEvent(QHideEvent *event) override;
+
+    void resizeEvent(QResizeEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
   private slots:
     void updatePRPSAnimation();
@@ -271,18 +355,35 @@ namespace ProGraphics {
       float zPosition = PRPSConstants::MAX_Z_POSITION;
       bool isActive = true;
       bool instanceBufferDirty = true;
+      int renderSlot = 0;
       std::vector<float> amplitudes;
       std::vector<Transform2D> transforms;
-      std::unique_ptr<Line2D> instancedLine;
     };
 
     // ==================== 成员变量 ====================
 
-    std::vector<std::vector<float> > m_currentCycles;
     float m_threshold = 0.1f;
-    std::vector<std::unique_ptr<LineGroup> > m_lineGroups;
-    UpdateThread m_updateThread;
-    float m_prpsAnimationSpeed = 0.1f;
+    ChartDataMode m_dataMode = ChartDataMode::Realtime;
+    PRPSEventSnapshot::Ptr m_staticEvents;
+    std::optional<Coordinate3D::Config> m_realtimeCoordinateConfig;
+    StaticAxis m_staticPhaseAxis, m_staticAmplitudeAxis;
+    bool m_staticEventsDirty = true;
+    bool m_staticEventsFailed = false;
+    QLabel* m_staticEmptyLabel = nullptr;
+    QPointF m_staticPressPosition;
+    bool m_staticPickCandidate = false;
+    std::deque<std::unique_ptr<LineGroup>> m_lineGroups;
+    RangeWindow m_rangeWindow{PRPSConstants::MAX_LINE_GROUPS};
+    bool m_lineTransformsDirty = false;
+    std::vector<std::unique_ptr<LineGroup>> m_recycledGroups;
+    std::unique_ptr<PRPSRenderer> m_pulseRenderer;
+    int m_nextRenderSlot = 0;
+    std::vector<PhaseAmplitudePlaneLine> m_phaseAmplitudePlaneSpecs;
+    std::vector<std::unique_ptr<Line2D> > m_phaseAmplitudePlaneDrawers;
+    QTimer m_animationTimer;
+    QElapsedTimer m_animationClock;
+    float m_prpsScrollSpeed = 5.0f; ///< 每秒移动距离，等同于原来每 20ms 移动 0.1
+    double m_playbackRate = 1.0; ///< 当前实例的滚动动画时间倍率
 
     DynamicRange m_dynamicRange{-75.0f, -30.0f, DynamicRange::DynamicRangeConfig()};
 
@@ -291,6 +392,8 @@ namespace ProGraphics {
     float m_fixedMax = -30.0f;
     float m_configuredMin = -75.0f;
     float m_configuredMax = -30.0f;
+    float m_displayMin = -75.0f;
+    float m_displayMax = -30.0f;
 
     float m_phaseMin = PRPSConstants::PHASE_MIN;
     float m_phaseMax = PRPSConstants::PHASE_MAX;
@@ -300,19 +403,26 @@ namespace ProGraphics {
 
     bool m_paused = false; ///< 是否暂停动画
     bool m_acceptData = true; ///< 是否接受新数据
+    bool m_animationVisible = false; ///< 由显示事件维护，也覆盖最小化时的自发隐藏
 
     // ==================== 私有方法 ====================
 
-    void processCurrentCycles();
+    void processCycle(const std::vector<float> &cycleData);
+
+    void paintStaticEvents();
+    void layoutStaticOverlay();
+    bool rejectStaticConfiguration(const char* method) const;
 
     void cleanupInactiveGroups();
+
+    void updateAnimationState();
 
     /**
      * @brief 由一周期幅值序列生成竖线实例变换（分桶取峰值或全采样）
      */
     void buildLineTransformsFromCycle(const std::vector<float> &cycleData, std::vector<Transform2D> &out) const;
 
-    float mapPhaseToGL(float phase) const;
+    float mapPhaseToGL(double phase) const;
 
     float mapAmplitudeToGL(float amplitude) const;
 
@@ -322,8 +432,20 @@ namespace ProGraphics {
 
     void recalculateLineGroups();
 
+    void rebuildLineGroups();
+
     void forceUpdateRange();
 
+    void updateRangeFromWindow();
+
+    void applyCurrentRange(bool forceTicks = false);
+
     void updateAxisTicks(float min, float max);
+
+    void syncPhaseAmplitudePlaneDrawers();
+
+    void paintPhaseAmplitudePlaneLines();
+
+    bool hasVisiblePhaseAmplitudePlaneLines() const;
   };
 } // namespace ProGraphics

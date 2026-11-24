@@ -9,8 +9,13 @@
 #include "grid.h"
 #include "prographics/charts/base/gl_widget.h"
 #include "prographics/utils/camera.h"
+#include <QPolygonF>
+#include <optional>
+#include <variant>
 
 namespace ProGraphics {
+  class CoordinateTextLayer;
+  class SelectionOverlay;
   /**
    * @brief 二维坐标系统类
    *
@@ -21,7 +26,7 @@ namespace ProGraphics {
    * - 刻度的显示和格式化配置
    * - 边距的自定义配置
    */
-  class Coordinate2D : public BaseGLWidget {
+  class PROGRAPHICS_EXPORT Coordinate2D : public BaseGLWidget {
     Q_OBJECT
 
   public:
@@ -415,11 +420,45 @@ namespace ProGraphics {
         */
     DisplayMode getDisplayMode() const { return m_config.displayMode; }
 
-    Camera camera() {
-      return m_camera;
-    }
+    Camera camera() const { return m_camera; }
+
+    enum class SelectionMode { Disabled, Rectangle, Polygon };
+    Q_ENUM(SelectionMode)
+
+    /// 矩形以数据坐标归一化。多边形隐式闭合，填充规则为 Qt::OddEvenFill。
+    using SelectionRegion = std::variant<QRectF, QPolygonF>;
+
+    SelectionMode selectionMode() const { return m_selectionMode; }
+    void setSelectionMode(SelectionMode mode);
+    std::optional<SelectionRegion> selection() const { return m_selection; }
+    bool finishSelection();
+    bool cancelSelection();
+    void clearSelection();
+
+    /// 绘图区在控件逻辑坐标中的范围，可能超出控件边界。
+    QRectF plotRect() const;
+
+    /// 在线性数据坐标（Y 轴向上）和控件逻辑坐标间转换。支持绘图区外的外推。
+    std::optional<QPointF> mapToChart(const QPointF& widgetPosition) const;
+    std::optional<QPointF> mapFromChart(const QPointF& chartPosition) const;
+
+  signals:
+    void selectionFinished(const SelectionRegion& region);
+    void selectionCanceled();
+    void selectionCleared();
 
   protected:
+    /// 返回 X/Y 数据范围。自定义坐标标签或刻度时可重写。
+    virtual QRectF chartDataRect() const;
+    /// 可过滤绘图区内归其它交互或覆盖层处理的位置。
+    virtual bool canStartSelectionAt(const QPointF& widgetPosition) const;
+    /// 自定义数据量程或投影更新后重投影已提交的选区。
+    void refreshSelectionProjection();
+
+    bool event(QEvent* event) override;
+    void focusInEvent(QFocusEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+
     /**
      * @brief 初始化OpenGL对象
      */
@@ -429,13 +468,6 @@ namespace ProGraphics {
      * @brief 绘制OpenGL对象
      */
     void paintGLObjects() override;
-
-    /**
-     * @brief 处理窗口大小变化
-     * @param w 新的宽度
-     * @param h 新的高度
-     */
-    void resizeGL(int w, int h) override;
 
   private:
     /**
@@ -469,7 +501,18 @@ namespace ProGraphics {
      */
     void setupCamera();
 
-  private:
+    QRectF selectionPlotRect() const;
+    bool handleSelectionEvent(QEvent* event);
+    bool startSelection(const QPointF& widgetPosition);
+    bool appendSelectionPoint(const QPointF& widgetPosition, bool last);
+    std::optional<SelectionRegion> draftSelection() const;
+
+    SelectionMode m_selectionMode = SelectionMode::Disabled;
+    std::optional<SelectionRegion> m_selection;
+    SelectionOverlay* m_selectionOverlay = nullptr; ///< QWidget 父对象负责释放
+    QPolygonF m_selectionPoints;
+    bool m_selectionPressClaimed = false;
+
     Config m_config; ///< 当前配置
     Camera m_camera; ///< 相机对象
 
@@ -477,6 +520,7 @@ namespace ProGraphics {
     std::unique_ptr<Grid> m_gridSystem; ///< 网格系统
     std::unique_ptr<AxisName> m_nameSystem; ///< 名称系统
     std::unique_ptr<AxisTicks> m_tickSystem; ///< 刻度系统
+    std::unique_ptr<CoordinateTextLayer> m_textLayer;
 
     static const char *vertexShaderSource; ///< 顶点着色器源码
     static const char *fragmentShaderSource; ///< 片段着色器源码
@@ -484,3 +528,5 @@ namespace ProGraphics {
     QColor m_backgroundcolor{46, 59, 84}; ///< 背景颜色
   };
 } // namespace ProGraphics
+
+Q_DECLARE_METATYPE(ProGraphics::Coordinate2D::SelectionRegion)

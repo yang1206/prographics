@@ -3,6 +3,8 @@
 //
 
 #include "prographics/charts/coordinate/axis_ticks.h"
+#include <algorithm>
+#include <cmath>
 
 namespace ProGraphics {
   AxisTicks::TickConfig::Range::Range() : min(0.0f), max(5.0f), step(2.0f) {
@@ -50,10 +52,14 @@ namespace ProGraphics {
       return;
 
     const auto &range = config.range;
-    int tickCount = static_cast<int>((range.max - range.min) / range.step);
+    if (!std::isfinite(range.min) || !std::isfinite(range.max) ||
+        !std::isfinite(range.step) || range.step <= 0 || range.max <= range.min) return;
+    const double count = (static_cast<double>(range.max) - range.min) / range.step;
+    // 避免错误步长造成无界标签分配；整数索引生成刻度，避免逐次累加漂移。
+    const int tickCount = static_cast<int>(std::min(10000.0, std::floor(count + 1e-6)));
 
     // 确定小数位数
-    int decimalPlaces = 0;
+    int decimalPlaces = 1;
     float step = range.step;
     if (step < 1.0f) {
       // 计算步长需要的小数位数
@@ -61,7 +67,8 @@ namespace ProGraphics {
     }
 
     for (int i = 0; i <= tickCount; ++i) {
-      float value = range.min + i * range.step;
+      float value = std::min(range.max,
+          static_cast<float>(static_cast<double>(range.min) + i * static_cast<double>(range.step)));
       QVector3D position = calculateTickPosition(axis, value, config.offset);
 
       // 使用自定义格式化函数或根据步长自动确定小数位数
@@ -72,10 +79,7 @@ namespace ProGraphics {
         // 根据步长自动确定小数位数
         text = QString::number(value, 'f', decimalPlaces);
         // 移除尾随的0
-        while (text.contains('.') && text.endsWith('0')) {
-          text.chop(1);
-        }
-        if (text.endsWith('.')) {
+        while (text.contains('.') && text.endsWith('0') && text.indexOf('.') < text.size() - 2) {
           text.chop(1);
         }
       }
@@ -95,7 +99,8 @@ namespace ProGraphics {
                                 : m_config.z);
     const auto &range = config.range;
 
-    float normalizedValue = (value - range.min) / (range.max - range.min);
+    float normalizedValue = static_cast<float>((static_cast<double>(value) - range.min) /
+        (static_cast<double>(range.max) - range.min));
     float geometryValue = normalizedValue * m_config.size;
     QVector3D basePosition;
     switch (axis) {

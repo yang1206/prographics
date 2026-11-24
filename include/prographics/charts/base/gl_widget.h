@@ -8,6 +8,8 @@
 #include <QOpenGLWidget>
 #include <QSurfaceFormat>
 #include <qelapsedtimer.h>
+#include <array>
+#include <cstddef>
 
 namespace ProGraphics {
   /**
@@ -24,7 +26,91 @@ namespace ProGraphics {
 
     ~BaseGLWidget() override;
 
+    // 诊断开关不改变数据接收和统计，默认绘制全部层并启用文字缓存。
+    struct RenderOptions {
+      bool geometry = true;
+      bool text = true;
+      bool data = true;
+      bool referenceLines = true;
+      bool cachedText = true;
+      bool operator==(const RenderOptions& other) const {
+        return geometry == other.geometry && text == other.text && data == other.data &&
+            referenceLines == other.referenceLines && cachedText == other.cachedText;
+      }
+    };
+    enum class RenderStage { Geometry, Text, Data, ReferenceLines };
+    struct FrameRenderMetrics {
+      std::array<qint64, 4> cpuNs{};
+      std::array<bool, 4> measured{};
+      bool textCacheUsed = false;
+      bool textCacheRebuilt = false;
+    };
+    // 仅启用 render profiling 后累计；读取和重置均在控件所属线程调用，不触发重绘。
+    struct RenderDiagnostics {
+      quint64 glInitializations = 0, frames = 0;
+      quint64 coordinateConfigs = 0, cameraUpdates = 0, animationUpdates = 0;
+      quint64 staticSubmissions = 0, staticUploads = 0;
+      quint64 textCacheRebuilds = 0, textFallbackFrames = 0;
+      qint64 initializeCpuNs = 0, frameCpuNs = 0;
+      std::array<qint64, 4> stageCpuNs{};
+    };
+    void setRenderOptions(const RenderOptions& options) {
+      if (m_renderOptions == options) return;
+      m_renderOptions = options;
+      update();
+    }
+    const RenderOptions& renderOptions() const { return m_renderOptions; }
+    void setRenderProfilingEnabled(bool enabled) {
+      m_renderProfiling = enabled;
+      resetRenderDiagnostics();
+    }
+    const FrameRenderMetrics& lastFrameRenderMetrics() const { return m_frameRenderMetrics; }
+    const RenderDiagnostics& renderDiagnostics() const { return m_renderDiagnostics; }
+    void resetRenderDiagnostics() {
+      m_frameRenderMetrics = {};
+      m_renderDiagnostics = {};
+    }
+
   protected:
+    enum class DiagnosticEvent { CoordinateConfig, CameraUpdate, AnimationUpdate, StaticSubmission, StaticUpload };
+    void recordDiagnosticEvent(DiagnosticEvent event) {
+      if (!m_renderProfiling) return;
+      switch (event) {
+      case DiagnosticEvent::CoordinateConfig: ++m_renderDiagnostics.coordinateConfigs; break;
+      case DiagnosticEvent::CameraUpdate: ++m_renderDiagnostics.cameraUpdates; break;
+      case DiagnosticEvent::AnimationUpdate: ++m_renderDiagnostics.animationUpdates; break;
+      case DiagnosticEvent::StaticSubmission: ++m_renderDiagnostics.staticSubmissions; break;
+      case DiagnosticEvent::StaticUpload: ++m_renderDiagnostics.staticUploads; break;
+      }
+    }
+    class RenderStageScope {
+    public:
+      RenderStageScope(BaseGLWidget& owner, RenderStage stage)
+          : m_owner(owner), m_stage(static_cast<size_t>(stage)), m_enabled(owner.m_renderProfiling) {
+        if (m_enabled) m_clock.start();
+      }
+      ~RenderStageScope() {
+        if (!m_enabled) return;
+        m_owner.m_frameRenderMetrics.cpuNs[m_stage] += m_clock.nsecsElapsed();
+        m_owner.m_frameRenderMetrics.measured[m_stage] = true;
+      }
+      RenderStageScope(const RenderStageScope&) = delete;
+      RenderStageScope& operator=(const RenderStageScope&) = delete;
+    private:
+      BaseGLWidget& m_owner;
+      size_t m_stage;
+      bool m_enabled;
+      QElapsedTimer m_clock;
+    };
+    RenderStageScope measureRenderStage(RenderStage stage) { return RenderStageScope(*this, stage); }
+    void recordTextCacheState(bool used, bool rebuilt) {
+      if (!m_renderProfiling) return;
+      m_frameRenderMetrics.textCacheUsed = used;
+      m_frameRenderMetrics.textCacheRebuilt = rebuilt;
+      if (rebuilt) ++m_renderDiagnostics.textCacheRebuilds;
+      if (!used) ++m_renderDiagnostics.textFallbackFrames;
+    }
+
     // OpenGL 基础函数
     void initializeGL() override;
 
@@ -41,5 +127,11 @@ namespace ProGraphics {
     QOpenGLShaderProgram *m_program;
     QOpenGLVertexArrayObject m_vao;
     QElapsedTimer m_timer;
+
+  private:
+    RenderOptions m_renderOptions;
+    bool m_renderProfiling = false;
+    FrameRenderMetrics m_frameRenderMetrics;
+    RenderDiagnostics m_renderDiagnostics;
   };
 } // namespace ProGraphics
