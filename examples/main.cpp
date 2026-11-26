@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "stress_test_dialog.h"
 #include "offline_demo.h"
+#include "line_chart_demo.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
@@ -16,6 +17,8 @@ int main(int argc, char *argv[]) {
     QCommandLineParser parser;
     parser.setApplicationDescription("ProGraphics 图表调试工具");
     parser.addHelpOption();
+    parser.addOption({"line", "打开通用多序列折线图示例。"});
+    parser.addOption({"line-auto", "运行折线图交互与性能验收，写入 JSON 后退出。", "JSON路径"});
     parser.addOption({"offline", "打开静态 PRPD 网格与 PRPS 逐事件序列示例。"});
     parser.addOption({"stress", "直接打开性能压力测试窗口。"});
     parser.addOption({"stress-auto", "自动完成压测、保存 CSV 后退出；压力超载仍会保存报告。", "CSV路径"});
@@ -23,6 +26,15 @@ int main(int argc, char *argv[]) {
     parser.addOption({"stress-warmup", "自动压测预热秒数，范围 1～60。", "秒数", "10"});
     parser.addOption({"stress-duration", "自动压测计时秒数，范围 1～3600。", "秒数", "60"});
     parser.process(a);
+    if (parser.isSet("line") || parser.isSet("line-auto")) {
+        std::unique_ptr<QWidget> window(parser.isSet("line-auto") ? createLineChartDemo(0x5eed1234u) : createLineChartDemo());
+        window->show();
+        if (parser.isSet("line-auto")) {
+            if (parser.value("line-auto").trimmed().isEmpty()) return 2;
+            startLineChartAcceptance(window.get(), parser.value("line-auto"));
+        }
+        return QApplication::exec();
+    }
     if (parser.isSet("offline")) {
         std::unique_ptr<QWidget> window(createOfflineDemo());
         window->show();

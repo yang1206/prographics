@@ -66,6 +66,17 @@ namespace ProGraphics {
   void TextRenderer::render(QPainter &painter, const QMatrix4x4 &viewMatrix,
                             const QMatrix4x4 &projectionMatrix, int width,
                             int height) {
+    QVector<ScreenLabel> labels;
+    collect(painter,viewMatrix,projectionMatrix,width,height,labels);
+    for(const auto& label:labels) {
+        painter.setFont(label.font); painter.setPen(label.color);
+        painter.drawText(label.baseline,label.text);
+    }
+  }
+
+  void TextRenderer::collect(QPainter& painter,const QMatrix4x4& viewMatrix,
+                             const QMatrix4x4& projectionMatrix,int width,int height,
+                             QVector<ScreenLabel>& output) {
     // 输入参数有效性检查
     if (width <= 0 || height <= 0 || m_labels.empty()) {
         return;
@@ -118,8 +129,7 @@ namespace ProGraphics {
         float finalX = qBound(0.0f, screenPos.x(), static_cast<float>(width));
         float finalY = qBound(0.0f, screenPos.y(), static_cast<float>(height));
 
-        // 绘制文本
-        painter.drawText(QPointF(finalX, finalY), label->text);
+        output.append({label->text,painter.font(),label->style.color,QPointF(finalX,finalY),textRect});
     }
   }
 

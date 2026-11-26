@@ -88,6 +88,11 @@ namespace ProGraphics {
     updateNames();
   }
 
+  void AxisName::collect(QPainter& painter,const QMatrix4x4& view,const QMatrix4x4& projection,
+                         int width,int height,QVector<TextRenderer::ScreenLabel>& output) {
+    if(m_initialized) m_textRenderer->collect(painter,view,projection,width,height,output);
+  }
+
   void AxisName::updateNames() {
     m_textRenderer->clear();
     // 更新X轴名称

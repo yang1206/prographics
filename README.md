@@ -11,6 +11,7 @@ ProGraphics 是一个基于 Qt 和 OpenGL 的现代化数据可视化图表库�
 
 - 基于现代 OpenGL (4.1 Core Profile) 的高性能渲染
 - 专业的 3D 数据可视化图表组件
+- 通用多序列折线图，支持独立 X/Y 缩放、悬浮读数和双游标（[使用说明](docs/line-chart-manual.md)）
 - 灵活的相机控制系统
 - 高质量文本渲染
 - 支持材质和纹理系统

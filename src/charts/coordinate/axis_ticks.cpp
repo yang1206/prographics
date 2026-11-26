@@ -38,6 +38,11 @@ namespace ProGraphics {
     updateTicks();
   }
 
+  void AxisTicks::collect(QPainter& painter,const QMatrix4x4& view,const QMatrix4x4& projection,
+                          int width,int height,QVector<TextRenderer::ScreenLabel>& output) {
+    if(m_initialized) m_textRenderer->collect(painter,view,projection,width,height,output);
+  }
+
   void AxisTicks::updateTicks() {
     m_textRenderer->clear();
     m_tickLabels.clear();
@@ -50,6 +55,19 @@ namespace ProGraphics {
   void AxisTicks::updateAxisTicks(char axis, const TickConfig &config) {
     if (!config.visible)
       return;
+
+    if (config.customTicks) {
+      for (const auto& tick:*config.customTicks) {
+        if (!std::isfinite(tick.position) || tick.position<0 || tick.position>1) continue;
+        QVector3D position=config.offset;
+        if (axis=='x') position+=QVector3D(tick.position*m_config.size,0,m_config.size);
+        else if (axis=='y') position+=QVector3D(0,tick.position*m_config.size,0);
+        else position+=QVector3D(0,0,tick.position*m_config.size);
+        auto* label=m_textRenderer->addLabel(tick.text,position,config.style);
+        m_textRenderer->setAlignment(label,config.alignment); m_tickLabels.push_back(label);
+      }
+      return;
+    }
 
     const auto &range = config.range;
     if (!std::isfinite(range.min) || !std::isfinite(range.max) ||
