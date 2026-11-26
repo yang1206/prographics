@@ -5,6 +5,19 @@
 #include "prographics/core/renderer/text_renderer.h"
 
 namespace ProGraphics {
+  TextRenderer::ScreenLabel TextRenderer::alignedScreenLabel(const QString& text,const QFont& font,const QColor& color,
+                                                             QPointF anchor,Qt::Alignment alignment,const QPaintDevice* device) {
+    const QRect bounds=QFontMetrics(font,device).boundingRect(text);
+    const QRectF ink(bounds);
+    if(alignment.testFlag(Qt::AlignRight)) anchor.rx()-=ink.right();
+    else if(alignment.testFlag(Qt::AlignHCenter)) anchor.rx()-=ink.center().x();
+    else anchor.rx()-=ink.left();
+    if(alignment.testFlag(Qt::AlignBottom)) anchor.ry()-=ink.bottom();
+    else if(alignment.testFlag(Qt::AlignVCenter)) anchor.ry()-=ink.center().y();
+    else anchor.ry()-=ink.top();
+    return {text,font,color,anchor,bounds};
+  }
+
   TextRenderer::Label *TextRenderer::addLabel(const QString &text,
                                               const QVector3D &position,
                                               const TextStyle &style) {

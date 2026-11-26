@@ -195,6 +195,7 @@ namespace ProGraphics {
   }
 
   void Coordinate2D::paintGLObjects() {
+    updateCoordinateLayout();
     const QMatrix4x4 model = m_camera.getViewMatrix();
     const QMatrix4x4 projection = m_camera.getProjectionMatrix();
     {
@@ -217,13 +218,8 @@ namespace ProGraphics {
 
     if (renderOptions().text) {
       auto timing = measureRenderStage(RenderStage::Text);
-      const auto paint = [&](QPainter& painter) {
-        if (m_nameSystem) m_nameSystem->render(painter, model, projection, width(), height());
-        if (m_tickSystem) m_tickSystem->render(painter, model, projection, width(), height());
-      };
       const auto collect = [&](QPainter& painter,QVector<TextRenderer::ScreenLabel>& labels) {
-        if (m_nameSystem) m_nameSystem->collect(painter,model,projection,width(),height(),labels);
-        if (m_tickSystem) m_tickSystem->collect(painter,model,projection,width(),height(),labels);
+        collectCoordinateText(painter,labels);
       };
       bool rebuilt = false;
       const bool cached = renderOptions().cachedText && m_textLayer &&
@@ -233,9 +229,19 @@ namespace ProGraphics {
         // 显式关闭缓存或纹理不可用时，使用原有文字路径。
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        paint(painter);
+        QVector<TextRenderer::ScreenLabel> labels;
+        collect(painter,labels);
+        for(const auto& label:labels) {
+          painter.setFont(label.font); painter.setPen(label.color); painter.drawText(label.baseline,label.text);
+        }
       }
     }
+  }
+
+  void Coordinate2D::collectCoordinateText(QPainter& painter,QVector<TextRenderer::ScreenLabel>& labels) {
+    const auto view=m_camera.getViewMatrix(),projection=m_camera.getProjectionMatrix();
+    if(m_nameSystem) m_nameSystem->collect(painter,view,projection,width(),height(),labels);
+    if(m_tickSystem) m_tickSystem->collect(painter,view,projection,width(),height(),labels);
   }
 
   void Coordinate2D::setConfig(const Config &config) {
@@ -570,6 +576,7 @@ namespace ProGraphics {
   }
 
   void Coordinate2D::updateNameSystem() {
+    updateCoordinateLayout();
     if (!m_nameSystem) return;
     if (m_textLayer) m_textLayer->invalidate();
 
@@ -593,6 +600,7 @@ namespace ProGraphics {
   }
 
   void Coordinate2D::updateTickSystem() {
+    updateCoordinateLayout();
     if (!m_tickSystem) return;
     if (m_textLayer) m_textLayer->invalidate();
 

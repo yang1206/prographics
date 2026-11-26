@@ -129,6 +129,8 @@ QWidget* createLineChartDemo(quint32 randomSeed) {
     auto* source=new QComboBox; source->setObjectName("lineSource");
     source->addItems({QStringLiteral("等间隔 X · 8 × 2,048 点"),QStringLiteral("非等间隔 X · 8 × 2,048 点")});
     auto* axes=new QComboBox; axes->addItems({QStringLiteral("双轴"),QStringLiteral("仅 X"),QStringLiteral("仅 Y")});
+    auto* presentation=new QComboBox; presentation->setObjectName("linePresentation");
+    presentation->addItems({QStringLiteral("普通布局"),QStringLiteral("宽且较矮"),QStringLiteral("大字号宽图")});
     auto* running=new QCheckBox(QStringLiteral("持续供数")); running->setObjectName("lineRunning");
     auto* rate=new QSpinBox; rate->setObjectName("lineRate"); rate->setRange(0,1000);
     rate->setSpecialValueText(QStringLiteral("不限速")); rate->setSuffix(QStringLiteral(" 帧/秒"));
@@ -139,13 +141,13 @@ QWidget* createLineChartDemo(quint32 randomSeed) {
     auto* fit=new QPushButton(QStringLiteral("恢复全幅"));
     auto* reload=new QPushButton(QStringLiteral("载入数据"));
     auto* clear=new QPushButton(QStringLiteral("清空"));
-    toolbar->addWidget(source); toolbar->addWidget(axes); toolbar->addStretch();
+    toolbar->addWidget(source); toolbar->addWidget(axes); toolbar->addWidget(presentation); toolbar->addStretch();
     toolbar->addWidget(fit); toolbar->addWidget(reload); toolbar->addWidget(clear); layout->addLayout(toolbar);
     auto* feedToolbar=new QHBoxLayout;
     feedToolbar->addWidget(running); feedToolbar->addWidget(new QLabel(QStringLiteral("生成速度上限:")));
     feedToolbar->addWidget(rate); feedToolbar->addWidget(hover); feedToolbar->addWidget(cursors);
     feedToolbar->addStretch(); layout->addLayout(feedToolbar);
-    auto* chart=new DemoLineChart; chart->setObjectName("lineChart"); chart->setMinimumSize(480,320);
+    auto* chart=new DemoLineChart; chart->setObjectName("lineChart"); chart->setMinimumSize(200,120);
     chart->setAxisName('x',QStringLiteral("时间"),QStringLiteral("μs"));
     chart->setAxisName('y',QStringLiteral("幅值"),QStringLiteral("a.u."));
     layout->addWidget(chart,1);
@@ -166,6 +168,15 @@ QWidget* createLineChartDemo(quint32 randomSeed) {
         return chart->setSeries(std::move(batch));
     };
     auto* feed=new LineDemoFeed(chart,load,window);
+    QObject::connect(presentation,&QComboBox::currentIndexChanged,window,[window,chart](int index) {
+        const int pointSize=index==2?16:10;
+        for(char axis:{'x','y'}) {
+            auto ticks=axis=='x'?chart->config().ticks.x.style:chart->config().ticks.y.style;
+            auto name=axis=='x'?chart->config().names.x.style:chart->config().names.y.style;
+            ticks.fontSize=name.fontSize=pointSize; chart->setTicksStyle(axis,ticks); chart->setAxisNameStyle(axis,name);
+        }
+        window->resize(index?1240:1200,index==2?520:(index?420:760));
+    });
     QObject::connect(rate,&QSpinBox::valueChanged,window,[feed](int hz) { feed->setRateHz(hz); });
     QObject::connect(running,&QCheckBox::toggled,window,[feed,source,reload](bool on) {
         source->setEnabled(!on); reload->setEnabled(!on); feed->setRunning(on);

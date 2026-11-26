@@ -88,6 +88,10 @@ class TextRenderer {
         QRect bounds;
     };
 
+    /// 按实际字形外框对齐逻辑像素锚点，返回可直接交给 drawText 的基线；不改变原有世界坐标标签的排版。
+    static ScreenLabel alignedScreenLabel(const QString& text,const QFont& font,const QColor& color,
+                                         QPointF anchor,Qt::Alignment alignment,const QPaintDevice* device=nullptr);
+
     /**
      * @brief 默认构造函数
      */

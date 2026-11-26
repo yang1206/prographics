@@ -451,6 +451,10 @@ namespace ProGraphics {
     void selectionCleared();
 
   protected:
+    /// 派生图表可按字体和逻辑像素安排坐标文字；默认沿用现有世界坐标布局。
+    virtual void updateCoordinateLayout() {}
+    virtual void collectCoordinateText(QPainter& painter,QVector<TextRenderer::ScreenLabel>& labels);
+
     /// 返回 X/Y 数据范围。自定义坐标标签或刻度时可重写。
     virtual QRectF chartDataRect() const;
     /// 可过滤绘图区内归其它交互或覆盖层处理的位置。

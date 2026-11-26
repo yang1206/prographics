@@ -118,6 +118,23 @@ private:
         source->setCurrentIndex(0);
         check(chart && chart->isValid(),"real OpenGL widget initialized");
         if(!chart->isValid()) { finish(); return; }
+        auto* presentation=window->findChild<QComboBox*>("linePresentation");
+        check(presentation!=nullptr,"demo provides wide and large-font layouts");
+        if(presentation) {
+            const auto x=chart->xRange(),y=chart->yRange();
+            const auto samples=chart->series().first().y;
+            for(int index:{1,2}) {
+                presentation->setCurrentIndex(index); QApplication::processEvents();
+                chart->grabFramebuffer();
+                check(chart->plotRect().width()>3*chart->plotRect().height(),"wide demo layout: "+QString::number(index));
+                check(near(chart->xRange().min,x.min) && near(chart->xRange().max,x.max) &&
+                      near(chart->yRange().min,y.min) && near(chart->yRange().max,y.max) && chart->series().first().y==samples,
+                      "layout switch preserves view and raw samples: "+QString::number(index));
+                window->grab().save(reportPath+(index==1?".wide.png":".large-font.png"));
+            }
+            check(chart->config().ticks.y.style.fontSize==16,"large-font demo changes chart text size");
+            presentation->setCurrentIndex(0); QApplication::processEvents(); chart->grabFramebuffer();
+        }
         chart->makeCurrent(); auto* f=chart->context()->functions();
         environment={{"os",QSysInfo::prettyProductName()},{"cpu",QSysInfo::currentCpuArchitecture()},
             {"qt",qVersion()},{"build",PROGRAPHICS_EXAMPLE_BUILD_TYPE},

@@ -1,12 +1,14 @@
 #include "prographics/charts/line/line_chart.h"
 #include "linear_ticks_p.h"
 #include <QKeyEvent>
+#include <QGuiApplication>
 #include <QLocale>
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QPainter>
 #include <QResizeEvent>
 #include <QSet>
+#include <QScopedValueRollback>
 #include <QVector2D>
 #include <QWheelEvent>
 #include <algorithm>
@@ -109,6 +111,17 @@ struct LineChart::Gpu {
     GLfloat lineWidthRange[2]{1,1};
 };
 
+struct LineChart::Layout {
+    Coordinate2D::Config config;
+    QSize widgetSize;
+    Range x,y;
+    qreal dpr=0;
+    int dpiX=0,dpiY=0;
+    QFont appFont;
+    QVector<TextRenderer::ScreenLabel> labels;
+    bool valid=false,updating=false;
+};
+
 bool LineChart::valid(Range r) {
     return std::isfinite(r.min) && std::isfinite(r.max) && r.max>r.min && std::isfinite(r.max-r.min);
 }
@@ -121,12 +134,11 @@ const LineChart::Series* LineChart::findSeries(const QString& id) const {
 }
 
 LineChart::LineChart(QWidget* parent) : Coordinate2D(parent) {
+    m_layout=std::make_unique<Layout>();
     setFormat(chartSurfaceFormat());
     setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
     auto cfg=config();
     cfg.displayMode=DisplayMode::Stretch;
-    // Coordinate2D 的相机偏移使 left/right、top/bottom 的留白方向相反；在本组件内安排留白。
-    cfg.margin={0.25f,0.85f,0.7f,0.35f};
     cfg.grid.xy.sineWave.visible=false;
     cfg.grid.xy.spacing=1.25f;
     cfg.grid.xy.majorColor=QVector4D(0.45f,0.55f,0.68f,0.4f);
@@ -187,10 +199,31 @@ bool LineChart::setSeriesColor(const QString& id,const QColor& color) {
 }
 QRectF LineChart::chartDataRect() const { return QRectF(QPointF(m_x.min,m_y.min),QPointF(m_x.max,m_y.max)); }
 bool LineChart::setViewRange(Range x,Range y) {
+    return setViewRangeAt(x,y,{},{},{});
+}
+bool LineChart::setViewRangeAt(Range x,Range y,QPointF pixel,QPointF data,Qt::Orientations anchoredAxes) {
     if (!valid(x) || !valid(y)) return false;
     m_initialFit=false;
-    if (x.min==m_x.min && x.max==m_x.max && y.min==m_y.min && y.max==m_y.max) return true;
-    m_x=x; m_y=y; updateTicks(); refreshSelectionProjection();
+    if (!anchoredAxes && x.min==m_x.min && x.max==m_x.max && y.min==m_y.min && y.max==m_y.max) return true;
+    const auto previousX=m_x,previousY=m_y;
+    m_x=x; m_y=y;
+    // 刻度字宽会改变绘图区；用最终绘图区校正锚点，只在收敛后发出一次范围变更。
+    for(int pass=0;;++pass) {
+        updateTicks();
+        if(!anchoredAxes || pass==8) break;
+        const auto mapped=mapToChart(pixel),projected=mapFromChart(data);
+        if(!mapped || !projected) break;
+        const bool horizontal=anchoredAxes.testFlag(Qt::Horizontal),vertical=anchoredAxes.testFlag(Qt::Vertical);
+        if((!horizontal || std::abs(projected->x()-pixel.x())<0.00001) &&
+           (!vertical || std::abs(projected->y()-pixel.y())<0.00001)) break;
+        const double dx=horizontal?data.x()-mapped->x():0,dy=vertical?data.y()-mapped->y():0;
+        const Range nextX{m_x.min+dx,m_x.max+dx},nextY{m_y.min+dy,m_y.max+dy};
+        if(!valid(nextX) || !valid(nextY)) break;
+        if(nextX.min==m_x.min && nextX.max==m_x.max && nextY.min==m_y.min && nextY.max==m_y.max) break;
+        m_x=nextX; m_y=nextY;
+    }
+    if(m_x.min==previousX.min && m_x.max==previousX.max && m_y.min==previousY.min && m_y.max==previousY.max) return true;
+    refreshSelectionProjection();
     m_hover.reset(); update(); updateOverlay(); emit viewRangeChanged(); return true;
 }
 void LineChart::fitToData(Qt::Orientations axes) {
@@ -204,20 +237,148 @@ void LineChart::fitToData(Qt::Orientations axes) {
                  axes.testFlag(Qt::Vertical)?expanded(ymin,ymax,true):m_y);
 }
 void LineChart::updateTicks() {
-    const auto plot=plotRect();
-    const auto metrics=[this](const TextRenderer::TextStyle& style) {
-        QFont font(style.fontFamily,style.fontSize); font.setBold(style.bold); font.setItalic(style.italic);
-        return QFontMetricsF(font,this);
+    updateCoordinateLayout();
+}
+
+void LineChart::updateCoordinateLayout() {
+    if(!m_layout || m_layout->updating) return;
+    auto& layout=*m_layout;
+    const auto& current=config();
+    const auto sameStyle=[](const TextRenderer::TextStyle& a,const TextRenderer::TextStyle& b) {
+        return a.fontFamily==b.fontFamily && a.fontSize==b.fontSize && a.bold==b.bold && a.italic==b.italic && a.color==b.color;
     };
-    const auto xFont=metrics(config().ticks.x.style),yFont=metrics(config().ticks.y.style);
-    const auto x=detail::linearTicks(m_x.min,m_x.max,plot.width(),false,[&](const QString& text) { return xFont.horizontalAdvance(text); });
-    const auto y=detail::linearTicks(m_y.min,m_y.max,plot.height(),true,[&](const QString&) { return yFont.height(); });
+    const auto sameName=[&](const AxisName::NameConfig& a,const AxisName::NameConfig& b) {
+        return a.visible==b.visible && a.text==b.text && a.unit==b.unit && sameStyle(a.style,b.style);
+    };
+    const auto& old=layout.config;
+    const auto appFont=QGuiApplication::font();
+    if(layout.valid && layout.widgetSize==size() && layout.dpr==devicePixelRatioF() &&
+       layout.dpiX==logicalDpiX() && layout.dpiY==logicalDpiY() && layout.appFont==appFont &&
+       layout.x.min==m_x.min && layout.x.max==m_x.max && layout.y.min==m_y.min && layout.y.max==m_y.max &&
+       old.size==current.size && old.displayMode==current.displayMode &&
+       old.margin.left==current.margin.left && old.margin.right==current.margin.right &&
+       old.margin.top==current.margin.top && old.margin.bottom==current.margin.bottom &&
+       old.axis.x.thickness==current.axis.x.thickness && old.axis.y.thickness==current.axis.y.thickness &&
+       old.grid.xy.thickness==current.grid.xy.thickness && old.ticks.enabled==current.ticks.enabled &&
+       old.ticks.x.visible==current.ticks.x.visible && old.ticks.y.visible==current.ticks.y.visible &&
+       sameStyle(old.ticks.x.style,current.ticks.x.style) && sameStyle(old.ticks.y.style,current.ticks.y.style) &&
+       old.names.enabled==current.names.enabled && sameName(old.names.x,current.names.x) && sameName(old.names.y,current.names.y)) return;
+    QScopedValueRollback<bool> guard(layout.updating,true);
+    const auto cfg=current;
+    if(width()<=0 || height()<=0 || !std::isfinite(cfg.size) || cfg.size<=0) { layout.labels.clear(); layout.valid=false; return; }
+    const auto fontOf=[](const TextRenderer::TextStyle& style) {
+        QFont font(style.fontFamily,style.fontSize); font.setBold(style.bold); font.setItalic(style.italic);
+        return font;
+    };
+    const auto xFont=fontOf(cfg.ticks.x.style),yFont=fontOf(cfg.ticks.y.style);
+    const auto xNameFont=fontOf(cfg.names.x.style),yNameFont=fontOf(cfg.names.y.style);
+    const QFontMetrics xMetrics(xFont,this),yMetrics(yFont,this),xNameMetrics(xNameFont,this),yNameMetrics(yNameFont,this);
+    const double w=width(),h=height(),pad=std::min(8.0,std::min(w,h)/4);
+    const double stroke=std::max({cfg.axis.x.thickness,cfg.axis.y.thickness,cfg.grid.xy.thickness});
+    const double gap=6+stroke/2,nameGap=6;
+    const auto title=[](const AxisName::NameConfig& name) { return name.text+(name.unit.isEmpty()?QString():" ("+name.unit+")"); };
+    const QString xName=xNameMetrics.elidedText(title(cfg.names.x),Qt::ElideRight,int(w-2*pad));
+    const QString yName=yNameMetrics.elidedText(title(cfg.names.y),Qt::ElideRight,int(w-2*pad));
+    bool showX=cfg.ticks.enabled && cfg.ticks.x.visible,showY=cfg.ticks.enabled && cfg.ticks.y.visible;
+    bool showXName=cfg.names.enabled && cfg.names.x.visible && !xName.isEmpty();
+    bool showYName=cfg.names.enabled && cfg.names.y.visible && !yName.isEmpty();
+    const double xNameWidth=xNameMetrics.boundingRect(xName).width(),xNameHeight=xNameMetrics.boundingRect(xName).height();
+    const double yNameHeight=yNameMetrics.boundingRect(yName).height();
+    showXName=showXName && xNameWidth<=w-2*pad;
+    showYName=showYName && yNameMetrics.boundingRect(yName).width()<=w-2*pad;
     const auto convert=[](const detail::LinearTicks& ticks,Range range) {
         QVector<AxisTicks::Tick> result; result.reserve(ticks.values.size());
         for(const auto& tick:ticks.values) result.append({float((tick.value-range.min)/(range.max-range.min)),tick.text});
         return result;
     };
-    setCustomTicks(convert(x,m_x),convert(y,m_y));
+    const auto prune=[](QVector<AxisTicks::Tick> ticks,double pixels,const QFontMetrics& metrics,bool vertical) {
+        while(ticks.size()>1) {
+            double end=-std::numeric_limits<double>::infinity(); bool overlap=false;
+            for(const auto& tick:ticks) {
+                const auto bounds=metrics.boundingRect(tick.text);
+                const double extent=vertical?bounds.height():bounds.width(),center=tick.position*pixels;
+                if(center-extent/2<end+4) { overlap=true; break; }
+                end=center+extent/2;
+            }
+            if(!overlap) break;
+            QVector<AxisTicks::Tick> fewer; for(qsizetype i=0;i<ticks.size();i+=2) fewer.append(ticks[i]);
+            ticks=std::move(fewer);
+        }
+        return ticks;
+    };
+    QVector<AxisTicks::Tick> xs,ys;
+    const auto locate=[&](QRectF plot) {
+        xs=showX?prune(convert(detail::linearTicks(m_x.min,m_x.max,plot.width(),false,[&](const QString& text) {
+            return xMetrics.boundingRect(text).width()+4.0;
+        }),m_x),plot.width(),xMetrics,false):QVector<AxisTicks::Tick>{};
+        ys=showY?prune(convert(detail::linearTicks(m_y.min,m_y.max,plot.height(),true,[&](const QString&) {
+            return yMetrics.height()+4.0;
+        }),m_y),plot.height(),yMetrics,true):QVector<AxisTicks::Tick>{};
+    };
+    const auto applyMargins=[&](QMarginsF margins) {
+        const double px=std::max(1.0,w-margins.left()-margins.right()),py=std::max(1.0,h-margins.top()-margins.bottom());
+        // 只在本组件内把逻辑像素换成现有相机的边距约定，保持其它图谱的相机行为。
+        const float left=float(cfg.size*margins.right()/px),right=float(cfg.size*margins.left()/px);
+        const float top=float(cfg.size*margins.bottom()/py),bottom=float(cfg.size*margins.top()/py);
+        const auto& m=config().margin;
+        if(m.left!=left || m.right!=right || m.top!=top || m.bottom!=bottom) Coordinate2D::setMargin(left,right,top,bottom);
+    };
+    QMarginsF margins(pad,pad,pad,pad);
+    double xWidth=0,xHeight=0,yWidth=0,yHeight=0,xRow=gap,xTitleRow=gap;
+    for(int pass=0;pass<8;++pass) {
+        applyMargins(margins); const auto plot=plotRect(); locate(plot);
+        for(const auto& tick:xs) { const auto box=xMetrics.boundingRect(tick.text); xWidth=std::max(xWidth,double(box.width())); xHeight=std::max(xHeight,double(box.height())); }
+        for(const auto& tick:ys) { const auto box=yMetrics.boundingRect(tick.text); yWidth=std::max(yWidth,double(box.width())); yHeight=std::max(yHeight,double(box.height())); }
+        xRow=gap;
+        if(showY) for(const auto& tick:xs)
+            if(tick.position*plot.width()-xMetrics.boundingRect(tick.text).width()/2.0 < -gap)
+                xRow=std::max(xRow,yHeight/2+4); // 两轴在左下角相遇时，也给文字外框留出间距。
+        xTitleRow=showX?xRow+xHeight+nameGap:gap;
+        if(showY && plot.width()<xNameWidth+2*gap) xTitleRow=std::max(xTitleRow,yHeight/2+4);
+        const double yTitleGap=showY?std::max(gap,yHeight/2+nameGap):gap;
+        QMarginsF needed(pad+std::max(showY?yWidth+gap:0.0,showX?xWidth/2:0.0),
+            pad+std::max(showY?yHeight/2:0.0,showYName?yTitleGap+yNameHeight:0.0),
+            pad+(showX?xWidth/2:0.0),
+            pad+std::max({showY?yHeight/2:0.0,showX?xRow+xHeight:0.0,showXName?xTitleRow+xNameHeight:0.0}));
+        if(h<=needed.top()+needed.bottom()+1) {
+            if(showXName || showYName) { showXName=false; showYName=false; }
+            else if(showX) showX=false;
+            else showY=false;
+            margins={pad,pad,pad,pad}; continue;
+        }
+        if(w<=needed.left()+needed.right()+1) {
+            if(showY) showY=false; else showX=false;
+            margins={pad,pad,pad,pad}; continue;
+        }
+        if(margins==needed) break;
+        margins=needed;
+    }
+    applyMargins(margins); const auto plot=plotRect(); locate(plot);
+    layout.labels.clear(); QVector<QRectF> occupied;
+    const auto add=[&](const QString& text,const QFont& font,const QColor& color,QPointF anchor,Qt::Alignment alignment) {
+        if(text.isEmpty()) return false;
+        const auto label=TextRenderer::alignedScreenLabel(text,font,color,anchor,alignment,this);
+        const auto ink=QRectF(label.bounds).translated(label.baseline);
+        if(ink.isEmpty() || !QRectF(rect()).contains(ink) || ink.intersects(plot.adjusted(-stroke/2,-stroke/2,stroke/2,stroke/2))) return false;
+        for(const auto& previous:occupied) if(previous.adjusted(-2,-2,2,2).intersects(ink)) return false;
+        occupied.append(ink); layout.labels.append(label); return true;
+    };
+    if(showYName) add(yName,yNameFont,cfg.names.y.style.color,{pad,plot.top()-(showY?std::max(gap,yHeight/2+nameGap):gap)},Qt::AlignLeft|Qt::AlignBottom);
+    if(showXName) {
+        const double center=std::clamp(plot.center().x(),pad+xNameWidth/2,w-pad-xNameWidth/2);
+        add(xName,xNameFont,cfg.names.x.style.color,{center,plot.bottom()+xTitleRow},Qt::AlignHCenter|Qt::AlignTop);
+    }
+    QVector<AxisTicks::Tick> visibleX,visibleY;
+    for(const auto& tick:xs) if(add(tick.text,xFont,cfg.ticks.x.style.color,{plot.left()+tick.position*plot.width(),plot.bottom()+xRow},Qt::AlignHCenter|Qt::AlignTop)) visibleX.append(tick);
+    for(const auto& tick:ys) if(add(tick.text,yFont,cfg.ticks.y.style.color,{plot.left()-gap,plot.bottom()-tick.position*plot.height()},Qt::AlignRight|Qt::AlignVCenter)) visibleY.append(tick);
+    setCustomTicks(visibleX,visibleY);
+    layout.config=config(); layout.widgetSize=size(); layout.dpr=devicePixelRatioF();
+    layout.dpiX=logicalDpiX(); layout.dpiY=logicalDpiY(); layout.appFont=appFont; layout.x=m_x; layout.y=m_y; layout.valid=true;
+}
+
+void LineChart::collectCoordinateText(QPainter&,QVector<TextRenderer::ScreenLabel>& labels) {
+    updateCoordinateLayout();
+    if(m_layout) labels+=m_layout->labels;
 }
 void LineChart::updateOverlay() { if (m_overlay) m_overlay->update(); }
 void LineChart::setHoverEnabled(bool enabled) { m_hoverEnabled=enabled; m_hover.reset(); updateOverlay(); }
@@ -295,7 +456,7 @@ void LineChart::mousePressEvent(QMouseEvent* e) {
         m_dragCursor=e->button()==Qt::LeftButton?0:1; moveCursor(m_dragCursor,e->position()); e->accept(); return;
     }
     if (e->button()==Qt::LeftButton) {
-        m_panning=true; m_pressPosition=e->position(); m_pressX=m_x; m_pressY=m_y;
+        m_panning=true; m_pressData=mapToChart(e->position()).value();
         m_dragAxes=axesFor(e->modifiers()); QWidget::setCursor(Qt::ClosedHandCursor); e->accept(); return;
     }
     Coordinate2D::mousePressEvent(e);
@@ -304,12 +465,7 @@ void LineChart::mouseMoveEvent(QMouseEvent* e) {
     m_hoverPosition=e->position();
     if (m_dragCursor>=0) { moveCursor(m_dragCursor,e->position()); e->accept(); return; }
     if (m_panning) {
-        const auto plot=plotRect(); const auto delta=e->position()-m_pressPosition;
-        if (plot.isValid()) {
-            double dx=m_dragAxes.testFlag(Qt::Horizontal)?-delta.x()/plot.width()*(m_pressX.max-m_pressX.min):0;
-            double dy=m_dragAxes.testFlag(Qt::Vertical)?delta.y()/plot.height()*(m_pressY.max-m_pressY.min):0;
-            setViewRange({m_pressX.min+dx,m_pressX.max+dx},{m_pressY.min+dy,m_pressY.max+dy});
-        }
+        setViewRangeAt(m_x,m_y,e->position(),m_pressData,m_dragAxes);
         e->accept(); return;
     }
     m_hover=m_hoverEnabled?sampleAt(*m_hoverPosition):std::nullopt;
@@ -330,8 +486,8 @@ void LineChart::wheelEvent(QWheelEvent* e) {
     const double steps=e->angleDelta().y()!=0 ? e->angleDelta().y()/120.0 : e->pixelDelta().y()/40.0;
     const double factor=std::pow(1.2,-std::clamp(steps,-20.0,20.0));
     auto scale=[&](Range r,double a) { return Range{a+(r.min-a)*factor,a+(r.max-a)*factor}; };
-    setViewRange(axes.testFlag(Qt::Horizontal)?scale(m_x,anchor->x()):m_x,
-                 axes.testFlag(Qt::Vertical)?scale(m_y,anchor->y()):m_y);
+    setViewRangeAt(axes.testFlag(Qt::Horizontal)?scale(m_x,anchor->x()):m_x,
+                   axes.testFlag(Qt::Vertical)?scale(m_y,anchor->y()):m_y,e->position(),*anchor,axes);
     e->accept();
 }
 void LineChart::leaveEvent(QEvent* e) { m_hoverPosition.reset(); m_hover.reset(); updateOverlay(); Coordinate2D::leaveEvent(e); }

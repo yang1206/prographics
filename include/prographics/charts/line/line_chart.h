@@ -64,6 +64,8 @@ signals:
     void cursorsChanged();
 
 protected:
+    void updateCoordinateLayout() override;
+    void collectCoordinateText(QPainter& painter,QVector<TextRenderer::ScreenLabel>& labels) override;
     QRectF chartDataRect() const override;
     void initializeGLObjects() override;
     void paintGLObjects() override;
@@ -79,12 +81,14 @@ protected:
 private:
     friend class LineChartOverlay;
     struct Gpu;
+    struct Layout;
     struct Cursor { QString id; qsizetype index = -1; };
     static bool valid(Range range);
     static double xAt(const Series& series, qsizetype index);
     const Series* findSeries(const QString& id) const;
     std::optional<Sample> nearestSample(QPointF position, double radius) const;
     Qt::Orientations axesFor(Qt::KeyboardModifiers modifiers) const;
+    bool setViewRangeAt(Range x,Range y,QPointF pixel,QPointF data,Qt::Orientations anchoredAxes);
     void updateTicks();
     void updateOverlay();
     void cleanupGL();
@@ -96,14 +100,14 @@ private:
     bool m_hoverEnabled = true, m_cursorsEnabled = false;
     bool m_panning = false;
     int m_dragCursor = -1;
-    QPointF m_pressPosition;
-    Range m_pressX, m_pressY;
+    QPointF m_pressData;
     Qt::Orientations m_dragAxes, m_axes = Qt::Horizontal | Qt::Vertical;
     Cursor m_cursors[2];
     std::optional<Sample> m_hover;
     std::optional<QPointF> m_hoverPosition;
     LineChartOverlay* m_overlay = nullptr;
     std::unique_ptr<Gpu> m_gpu;
+    std::unique_ptr<Layout> m_layout;
     QMetaObject::Connection m_contextConnection;
     quint64 m_uploads = 0;
 };
