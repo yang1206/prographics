@@ -155,9 +155,13 @@ void main() {
         if (m_nameSystem) m_nameSystem->render(painter, model, projection, width(), height());
         if (m_tickSystem) m_tickSystem->render(painter, model, projection, width(), height());
       };
+      const auto collect = [&](QPainter& painter,QVector<TextRenderer::ScreenLabel>& labels) {
+        if (m_nameSystem) m_nameSystem->collect(painter,model,projection,width(),height(),labels);
+        if (m_tickSystem) m_tickSystem->collect(painter,model,projection,width(),height(),labels);
+      };
       bool rebuilt = false;
       const bool cached = renderOptions().cachedText && m_textLayer &&
-          m_textLayer->render(*this, model, projection, paint, rebuilt);
+          m_textLayer->render(*this, model, projection, collect, rebuilt);
       recordTextCacheState(cached, rebuilt);
       if (!cached) {
         // 显式关闭缓存或纹理不可用时，使用原有文字路径。

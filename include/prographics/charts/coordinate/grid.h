@@ -2,6 +2,8 @@
 #include "prographics/core/graphics/primitive2d.h"
 #include <QMatrix4x4>
 #include <memory>
+#include <optional>
+#include <QVector>
 
 namespace ProGraphics {
   class Grid {
@@ -27,6 +29,7 @@ namespace ProGraphics {
       QVector4D majorColor;
       QVector4D minorColor;
       SineWaveConfig sineWave;
+      std::optional<QVector<float>> positions1, positions2;
 
       // 构造函数
       PlaneConfig();

@@ -7,6 +7,8 @@
 #include "prographics/core/renderer/text_renderer.h"
 #include <QMatrix4x4>
 #include <memory>
+#include <optional>
+#include <QVector>
 
 namespace ProGraphics {
   /**
@@ -17,6 +19,11 @@ namespace ProGraphics {
    */
   class AxisTicks {
   public:
+    struct Tick {
+      float position; ///< 轴上的归一化位置 [0,1]。
+      QString text;
+      bool operator==(const Tick&) const = default;
+    };
     /**
      * @brief 单个轴的刻度配置结构
      */
@@ -47,6 +54,8 @@ namespace ProGraphics {
 
         Range(float min, float max, float step);
       } range;
+
+      std::optional<QVector<Tick>> customTicks; ///< 设定后以显式位置和标签代替 range 自动生成。
 
       TickConfig() = default;
 
@@ -111,6 +120,8 @@ namespace ProGraphics {
      */
     void render(QPainter &painter, const QMatrix4x4 &view,
                 const QMatrix4x4 &projection, int width, int height);
+    void collect(QPainter& painter,const QMatrix4x4& view,const QMatrix4x4& projection,
+                 int width,int height,QVector<TextRenderer::ScreenLabel>& output);
 
     /**
      * @brief 设置配置

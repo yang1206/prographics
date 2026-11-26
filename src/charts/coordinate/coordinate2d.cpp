@@ -221,9 +221,13 @@ namespace ProGraphics {
         if (m_nameSystem) m_nameSystem->render(painter, model, projection, width(), height());
         if (m_tickSystem) m_tickSystem->render(painter, model, projection, width(), height());
       };
+      const auto collect = [&](QPainter& painter,QVector<TextRenderer::ScreenLabel>& labels) {
+        if (m_nameSystem) m_nameSystem->collect(painter,model,projection,width(),height(),labels);
+        if (m_tickSystem) m_tickSystem->collect(painter,model,projection,width(),height(),labels);
+      };
       bool rebuilt = false;
       const bool cached = renderOptions().cachedText && m_textLayer &&
-          m_textLayer->render(*this, model, projection, paint, rebuilt);
+          m_textLayer->render(*this, model, projection, collect, rebuilt);
       recordTextCacheState(cached, rebuilt);
       if (!cached) {
         // 显式关闭缓存或纹理不可用时，使用原有文字路径。
@@ -529,6 +533,12 @@ namespace ProGraphics {
     m_axisSystem->setConfig(axisConfig);
   }
 
+  void Coordinate2D::setCustomTicks(const QVector<AxisTicks::Tick>& x,const QVector<AxisTicks::Tick>& y) {
+    if (m_config.ticks.x.customTicks==x && m_config.ticks.y.customTicks==y) return;
+    m_config.ticks.x.customTicks=x; m_config.ticks.y.customTicks=y;
+    updateTickSystem(); updateGridSystem(); update();
+  }
+
   void Coordinate2D::updateGridSystem() {
     if (!m_gridSystem) return;
     Grid::Config gridConfig;
@@ -544,6 +554,13 @@ namespace ProGraphics {
       };
 
       gridConfig.xy.sineWave = m_config.grid.xy.sineWave;
+      const auto positions=[this](const QVector<AxisTicks::Tick>& ticks) {
+        QVector<float> result; result.reserve(ticks.size());
+        for (const auto& tick:ticks) result.append(tick.position*m_config.size);
+        return result;
+      };
+      if (m_config.ticks.x.customTicks) gridConfig.xy.positions1=positions(*m_config.ticks.x.customTicks);
+      if (m_config.ticks.y.customTicks) gridConfig.xy.positions2=positions(*m_config.ticks.y.customTicks);
       //禁用XZ和YZ平面网格
       gridConfig.xz.visible = false;
       gridConfig.yz.visible = false;

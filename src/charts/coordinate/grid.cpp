@@ -1,6 +1,18 @@
 ﻿#include "prographics/charts/coordinate/grid.h"
 
 namespace ProGraphics {
+  namespace {
+    Line2D& nextGridLine(std::vector<std::shared_ptr<Line2D>>& lines,size_t& used) {
+      if(used==lines.size()) lines.push_back(std::make_shared<Line2D>());
+      auto& line=*lines[used++]; line.setVisible(true); return line;
+    }
+    void finishGridLines(std::vector<std::shared_ptr<Line2D>>& lines,size_t used) {
+      for(size_t i=used;i<lines.size();++i) lines[i]->setVisible(false);
+      // 留住常用容量；从极密网格切回稀疏网格后不永久持有全部历史对象。
+      const size_t retained=std::max(size_t(256),used*2);
+      if(lines.size()>retained) lines.resize(retained);
+    }
+  }
   Grid::SineWaveConfig::SineWaveConfig()
     : visible(false),
       thickness(2.0f),
@@ -88,6 +100,7 @@ namespace ProGraphics {
       return;
 
     if (m_batchDirty) {
+      updateGrids();
       updateBatch();
     }
 
@@ -96,7 +109,7 @@ namespace ProGraphics {
 
   void Grid::setConfig(const Config &config) {
     m_config = config;
-    updateGrids();
+    // Primitive2D 构造时会初始化 GL 函数；配置可在鼠标事件中更新，几何在当前 GL 绘制中再重建。
     m_batchDirty = true;
   }
 
@@ -104,10 +117,10 @@ namespace ProGraphics {
                                const QVector3D &planeNormal,
                                const PlaneConfig &planeConfig) {
     if (!planeConfig.visible) {
-      lines.clear();
+      finishGridLines(lines,0);
       return;
     }
-    lines.clear();
+    size_t used=0;
 
     // 确定平面的两个方向向量
     QVector3D dir1, dir2;
@@ -125,13 +138,30 @@ namespace ProGraphics {
       dir2 = QVector3D(0, 0, 1);
     }
 
+    if (planeConfig.positions1 || planeConfig.positions2) {
+      const auto append=[&](const QVector<float>& positions,const QVector3D& direction,const QVector3D& along) {
+        for (float pos:positions) {
+          if (!std::isfinite(pos) || pos<0 || pos>m_config.size) continue;
+          auto& line=nextGridLine(lines,used);
+          line.setPoints(direction*pos,direction*pos+along*m_config.size);
+          line.setColor(planeConfig.majorColor);
+          Primitive2DStyle style; style.lineWidth=planeConfig.thickness;
+          line.setStyle(style);
+        }
+      };
+      if (planeConfig.positions1) append(*planeConfig.positions1,dir1,dir2);
+      if (planeConfig.positions2) append(*planeConfig.positions2,dir2,dir1);
+      finishGridLines(lines,used);
+      return;
+    }
+
     // 只生成第一象限的网格
     float spacing = planeConfig.spacing;
     int lineCount = static_cast<int>(m_config.size / spacing);
 
     // 生成平行于dir1方向的线
     for (int i = 0; i <= lineCount; ++i) {
-      auto line = std::make_shared<Line2D>();
+      auto& line=nextGridLine(lines,used);
       float pos = i * spacing;
 
       // 判断是否为主网格线
@@ -141,21 +171,18 @@ namespace ProGraphics {
       QVector3D start = QVector3D(0, 0, 0) + dir1 * pos;
       QVector3D end = dir2 * m_config.size + dir1 * pos;
 
-      line->setPoints(start, end);
-      line->setColor(color);
+      line.setPoints(start, end);
+      line.setColor(color);
 
       Primitive2DStyle style;
       style.lineWidth =
           isMajor ? planeConfig.thickness : planeConfig.thickness * 0.5f;
-      line->setStyle(style);
-      line->setVisible(true);
-
-      lines.push_back(line);
+      line.setStyle(style);
     }
 
     // 生成平行于dir2方向的线
     for (int i = 0; i <= lineCount; ++i) {
-      auto line = std::make_shared<Line2D>();
+      auto& line=nextGridLine(lines,used);
       float pos = i * spacing;
 
       bool isMajor = std::abs(std::fmod(pos, 1.0f)) < 0.001f;
@@ -164,17 +191,15 @@ namespace ProGraphics {
       QVector3D start = QVector3D(0, 0, 0) + dir2 * pos;
       QVector3D end = dir1 * m_config.size + dir2 * pos;
 
-      line->setPoints(start, end);
-      line->setColor(color);
+      line.setPoints(start, end);
+      line.setColor(color);
 
       Primitive2DStyle style;
       style.lineWidth =
           isMajor ? planeConfig.thickness : planeConfig.thickness * 0.5f;
-      line->setStyle(style);
-      line->setVisible(true);
-
-      lines.push_back(line);
+      line.setStyle(style);
     }
+    finishGridLines(lines,used);
   }
 
 
@@ -183,11 +208,11 @@ namespace ProGraphics {
                               const SineWaveConfig &config,
                               float size) {
     if (!config.visible) {
-      lines.clear();
+      finishGridLines(lines,0);
       return;
     }
 
-    lines.clear();
+    size_t used=0;
     const int segments = 100; // 增加分段数以获得更平滑的曲线
 
     // 确定平面的两个方向向量
@@ -222,17 +247,15 @@ namespace ProGraphics {
       QVector3D start = dir1 * x1 + dir2 * s1;
       QVector3D end = dir1 * x2 + dir2 * s2;
 
-      auto line = std::make_shared<Line2D>();
-      line->setPoints(start, end);
-      line->setColor(config.color);
+      auto& line=nextGridLine(lines,used);
+      line.setPoints(start, end);
+      line.setColor(config.color);
 
       Primitive2DStyle style;
       style.lineWidth = config.thickness;
-      line->setStyle(style);
-      line->setVisible(true);
-
-      lines.push_back(line);
+      line.setStyle(style);
     }
+    finishGridLines(lines,used);
   }
 
   void Grid::updateGrids() {

@@ -92,6 +92,8 @@ namespace ProGraphics {
      */
     void render(QPainter &painter, const QMatrix4x4 &view,
                 const QMatrix4x4 &projection, int width, int height);
+    void collect(QPainter& painter,const QMatrix4x4& view,const QMatrix4x4& projection,
+                 int width,int height,QVector<TextRenderer::ScreenLabel>& output);
 
     /**
      * @brief 设置配置

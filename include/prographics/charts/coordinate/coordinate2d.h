@@ -390,6 +390,9 @@ namespace ProGraphics {
      */
     void setTicksFormatter(char axis, std::function<QString(float)> formatter);
 
+    /// 同时设置 X/Y 的显式刻度及对应网格位置，不改变数据范围和相机。
+    void setCustomTicks(const QVector<AxisTicks::Tick>& x,const QVector<AxisTicks::Tick>& y);
+
     /**
      * @brief 设置坐标系边距
      * @param left 左边距

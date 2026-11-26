@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "stress_test_dialog.h"
 #include "offline_demo.h"
+#include "line_chart_demo.h"
 #include <QSplitter>
 #include <QScrollArea>
 #include <QFrame>
@@ -46,6 +47,17 @@ void MainWindow::setupUI() {
     QWidget *controlWidget = new QWidget();
     QVBoxLayout *controlLayout = new QVBoxLayout(controlWidget);
     controlLayout->setSpacing(8);
+
+    auto* lineDemoBtn = new QPushButton(QStringLiteral("折线图示例"));
+    controlLayout->addWidget(lineDemoBtn);
+    connect(lineDemoBtn, &QPushButton::clicked, this, [this] {
+        auto* dialog = new QDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        auto* demo = createLineChartDemo();
+        dialog->setWindowTitle(demo->windowTitle()); dialog->resize(1200, 760);
+        auto* layout = new QVBoxLayout(dialog); layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(demo); dialog->show();
+    });
 
     auto* offlineDemoBtn = new QPushButton(QStringLiteral("离线示例"));
     controlLayout->addWidget(offlineDemoBtn);

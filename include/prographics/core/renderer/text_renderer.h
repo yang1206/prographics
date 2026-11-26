@@ -79,6 +79,15 @@ class TextRenderer {
         Label() : visible(true), offsetX(0.0f), offsetY(0.0f), alignment(Qt::AlignCenter) {}
     };
 
+    /// 与 render 相同的屏幕排版结果，供坐标文字缓存使用。
+    struct ScreenLabel {
+        QString text;
+        QFont font;
+        QColor color;
+        QPointF baseline;
+        QRect bounds;
+    };
+
     /**
      * @brief 默认构造函数
      */
@@ -114,6 +123,9 @@ class TextRenderer {
      */
     void
     render(QPainter& painter, const QMatrix4x4& viewMatrix, const QMatrix4x4& projectionMatrix, int width, int height);
+
+    void collect(QPainter& painter,const QMatrix4x4& viewMatrix,const QMatrix4x4& projectionMatrix,
+                 int width,int height,QVector<ScreenLabel>& output);
 
     /**
      * @brief 更新标签文本
